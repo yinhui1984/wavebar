@@ -146,7 +146,7 @@ Wavebar 在设计上极其注重性能，避免了在音频回调线程中进行
 
 ```text
 wavebar/
-├── Package.swift            # SPM 配置文件，声明 macOS 14+ 平台与 wavebar 独立执行 target
+├── Package.swift            # SPM 配置文件，声明 macOS 14+ 平台，排除 AppIcon.icns 资源
 ├── Makefile                 # 快捷构建工具
 ├── Sources/
 │   ├── main.swift           # 独立可执行程序引导入口，调用 WavebarApp.main()
@@ -155,8 +155,14 @@ wavebar/
 │   ├── RingBuffer.swift     # 线程安全双端环形缓冲区 (浮点数)
 │   ├── AudioEngineManager.swift # 封装 CoreAudio 硬件查询与 AVAudioEngine 输入流 Tap
 │   ├── FFTProcessor.swift   # 基于 Accelerate/vDSP 的 FFT 核心处理器
-│   └── SpectrumAnalyzer.swift   # 对数分桶、EQ 曲线、Auto-Gain 与 Attack/Release 动力学分析器
-```
+│   ├── SpectrumAnalyzer.swift   # 对数分桶、EQ 曲线、Auto-Gain 与 Attack/Release 动力学分析器
+│   └── AppIcon.icns         # 编译后的 native macOS 矢量及多分辨率应用图标
+├── script/
+│   ├── build_and_run.sh     # 核心打包构建脚本，负责 app 结构拼装、图标资源拷贝与 Info.plist 自动生成
+│   ├── ProcessIcon.swift    # 离线图标处理程序，对生成的 PNG 进行智能径向 unblending 与羽化抠图
+│   └── generate_icns.sh     # 图标全分辨率生成与打包编译脚本 (调用 sips 与 iconutil)
+└── dist/
+    └── Wavebar.app          # 构建出的标准 macOS 独立 App Bundle 包 (包含全部图标及 Metallib 资源)```
 
 ---
 
@@ -227,9 +233,10 @@ wavebar/
 #### 5. 瞬态重低音脉冲检测与比例能量光晕 (Continuous Beat Radial Glow)
 *   **代码位置**：`Sources/SpectrumAnalyzer.swift` -> `processFrame(magnitudes:)` 的中段。
 *   **修改指南**：
-    *   提取 `50Hz` 到 `180Hz` 频段对应的所有桶能量，计算出即时平均值 `bassEnergy`。维护一个平滑基准值 `bassAverage = bassAverage * 0.97 + bassEnergy * 0.03`。
-    *   当即时低音能量比历史基准能量大出 **35%** (`ratio > 1.35`) 且绝对振幅大于阈值时判定为一个有效鼓点。
-    *   **比例级脉冲强度 (Proportional Glow)**：触发时，`pulseGlow` 不再只是硬编码的二进制 `1.0`，而是采用连续比例映射公式 `min(1.5, (ratio - 1.35) * 1.5 + 0.5)`。这使得轻微的鼓点仅激发出温润微弱的环境底光，而重金属 Drop 级别的强力音浪瞬间爆发极高亮度的爆燃光晕。
+    *   **低音瞬态比计算**：提取 `50Hz` 到 `180Hz` 频段对应的所有桶能量，计算出即时平均值 `bassEnergy`。维护一个平滑基准值 `bassAverage = bassAverage * 0.97 + bassEnergy * 0.03`，并通过 `ratio = bassEnergy / bassAverage` 计算即时低音瞬态能量比。
+    *   **连续比例级脉冲强度 (Continuous Proportional Glow)**：摒弃了传统的二元门限硬阈值，改用无级连续的**幂级非线性映射模型**：
+        $$\text{pulseGlow} = \max\left(\text{pulseGlow}, \min\left(1.8, \text{excessRatio}^{2.0} \times 1.6 \times \text{energyFactor}\right)\right)$$
+        其中，超额瞬态比 `excessRatio = max(0.0, ratio - 1.0)`；低音能量门禁系数 `energyFactor = min(1.0, bassEnergy / 0.02)` 用作自适应降噪。这确保了静音时绝对干净，温柔的轻点鼓声泛起极细腻弱光，而重低音打击乐 Drop 降临时爆发极强张力的 `1.8` 倍高亮闪烁，动态范围大大放大。
     *   `pulseGlow` 随后在每一帧以指数阻尼衰减（`* 0.86`），驱动 MainView 中背景发光层 (`RadialGradient`) 的亮度和大小，实现随节奏起伏的高端律动感。
 
 #### 6. 高频均值/最大值混合映射 (Hybrid HF Mapping)

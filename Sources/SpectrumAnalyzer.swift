@@ -243,13 +243,16 @@ public final class SpectrumAnalyzer: ObservableObject {
             // Slow-moving average of the bass band
             bassAverage = bassAverage * 0.97 + bassEnergy * 0.03
             
-            // Detect transient (sudden spike above the moving average)
+            // Detect transient ratio (current energy vs moving average)
             let ratio = bassAverage > 0 ? (bassEnergy / bassAverage) : 1.0
-            if ratio > 1.35 && bassEnergy > 0.005 {
-                // Beat trigger! Drive background pulse proportionally to the energy spike
-                let targetGlow = min(1.5, (ratio - 1.35) * 1.5 + 0.5)
-                pulseGlow = max(pulseGlow, targetGlow)
-            }
+            
+            // Proportional Glow: continuous, non-linear scaling with dynamic energy gate
+            let energyFactor = min(1.0, bassEnergy / 0.02)
+            let excessRatio = max(0.0, ratio - 1.0)
+            let targetGlow = pow(excessRatio, 2.0) * 1.6 * energyFactor
+            
+            // Allow instant attack but cap at a premium intense glow maximum (1.8)
+            pulseGlow = max(pulseGlow, min(1.8, targetGlow))
         }
         
         // 3. Adaptive Auto-Gain (Autosens) with Noise Gate
