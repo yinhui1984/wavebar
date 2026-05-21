@@ -86,6 +86,8 @@ public struct MainView: View {
     }()
     
     @State private var displayLinkAction: DisplayLinkAction? = nil
+    @State private var shakeOffset: CGFloat = 0.0
+    @State private var shakeVelocity: CGFloat = 0.0
     
     // Drag Zones for horizontal frequency range adjustments
     private enum DragZone {
@@ -192,8 +194,17 @@ public struct MainView: View {
                         combinedPath.addRoundedRect(in: rect, cornerSize: CGSize(width: cornerRadius, height: cornerRadius))
                     }
                     
-                    // Single gradient allocation and fill call for the entire canvas
-                    let barGradient = Gradient(colors: selectedTheme.colors)
+                    // Emission flash: blend the gradient colors towards white based on beat pulse
+                    let beatFlash = Double(spectrumAnalyzer.pulseGlow)
+                    let baseColors = selectedTheme.colors
+                    let blendedColors = baseColors.enumerated().map { index, color -> Color in
+                        // Higher frequencies/height stops flash more intensely
+                        let factor = Double(index) / Double(baseColors.count - 1)
+                        let flashWeight = min(1.0, beatFlash * 0.65 * factor)
+                        return color.blend(with: .white, weight: flashWeight)
+                    }
+                    
+                    let barGradient = Gradient(colors: blendedColors)
                     context.fill(
                         combinedPath,
                         with: .linearGradient(
@@ -203,6 +214,7 @@ public struct MainView: View {
                         )
                     )
                 }
+                .offset(y: shakeOffset) // Apply physical spring camera shake on strong beats
                 .edgesIgnoringSafeArea(.horizontal)
                 .contentShape(Rectangle())
                 .gesture(
@@ -521,18 +533,27 @@ public struct MainView: View {
             }
             .onAppear {
                 displayLinkAction = DisplayLinkAction {
-                    // Execute real-time audio DSP calculations at native display refresh rate
+                    // A. Read latest audio frames and run DSP calculations
                     let fftSize = fftProcessor.fftSize
                     spectrumAnalyzer.updateSampleRate(audioEngineManager.sampleRate)
                     
-                    // A. Read latest audio frames
                     ringBuffer.readLatest(count: fftSize, into: &bufferHolder.sampleBuffer)
-                    
-                    // B. Run FFT analysis
                     fftProcessor.analyze(samples: bufferHolder.sampleBuffer, magnitudes: &bufferHolder.magnitudes)
-                    
-                    // C. Feed spectral results to dynamic smoothing and shaping
                     spectrumAnalyzer.processFrame(magnitudes: bufferHolder.magnitudes)
+                    
+                    // B. Spring-Damped Camera Shake Physics Simulation
+                    let glow = CGFloat(spectrumAnalyzer.pulseGlow)
+                    if glow > 0.9 && abs(shakeOffset) < 0.2 {
+                        // Apply a physical impulse downwards on heavy beats
+                        shakeVelocity = glow * 3.5
+                    }
+                    
+                    // Spring equation: force = -k * x - c * v
+                    let k: CGFloat = 0.16 // Spring stiffness constant
+                    let c: CGFloat = 0.14 // Damping coefficient to prevent infinite oscillation
+                    let force = -k * shakeOffset - c * shakeVelocity
+                    shakeVelocity += force
+                    shakeOffset += shakeVelocity
                 }
             }
             .onDisappear {
@@ -577,6 +598,16 @@ public struct MainView: View {
 // Clean custom colors extension to fit sleek aesthetics
 extension Color {
     static let amberPrimary = Color(red: 1.0, green: 0.65, blue: 0.15)
+    
+    /// Blends two colors together with a weight between 0.0 and 1.0.
+    func blend(with other: Color, weight: Double) -> Color {
+        let c1 = NSColor(self)
+        let c2 = NSColor(other)
+        guard let blended = c1.blended(withFraction: CGFloat(weight), of: c2) else {
+            return self
+        }
+        return Color(blended)
+    }
 }
 
 /// A DisplayLink timer synchronized exactly with the hardware refresh rate of the monitor (VSYNC).

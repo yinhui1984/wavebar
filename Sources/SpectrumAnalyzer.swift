@@ -188,79 +188,44 @@ public final class SpectrumAnalyzer: ObservableObject {
         var rawBucketValues = [Float](repeating: 0.0, count: bucketCount)
         var frameMax: Float = 0.0
         
-        // 1. Map raw FFT bins to logarithmic buckets and apply EQ curve
+        // 1. Map raw FFT bins to logarithmic buckets (using Hybrid HF Mapping for high-freq accuracy)
         for k in 0..<bucketCount {
             let config = bucketConfigs[k]
             
             var sum: Float = 0.0
+            var maxVal: Float = 0.0
             let start = config.startBin
             let end = min(config.endBin, magnitudes.count - 1)
             
             for bin in start...end {
-                sum += magnitudes[bin]
+                let val = magnitudes[bin]
+                sum += val
+                if val > maxVal {
+                    maxVal = val
+                }
             }
             
             let avgVal = sum / Float(end - start + 1)
-            let gainedVal = avgVal * getEQGain(frequency: config.centerFrequency)
             
+            // High-frequency detail boost: above 2kHz, mix max and average to make transients pop out
+            let frequency = config.centerFrequency
+            let hybridVal: Float
+            if frequency > 2000.0 {
+                let t = min(1.0, (frequency - 2000.0) / 6000.0)
+                let maxWeight = t * 0.6 // Up to 60% peak/max bin, 40% average above 8kHz
+                hybridVal = maxVal * maxWeight + avgVal * (1.0 - maxWeight)
+            } else {
+                hybridVal = avgVal
+            }
+            
+            let gainedVal = hybridVal * getEQGain(frequency: frequency)
             rawBucketValues[k] = gainedVal
             if gainedVal > frameMax {
                 frameMax = gainedVal
             }
         }
         
-        // 2. Adaptive Auto-Gain (Autosens)
-        // Decay the running maximum slowly to track music dynamics
-        runningMax = runningMax * 0.994 + frameMax * 0.006
-        runningMax = max(runningMax, 0.03) // Floor to prevent noise boosting during silence
-        
-        // 3. Normalization, Compression, and Dynamic Attack/Release Smoothing
-        let currentRelease = smoothness
-        
-        for k in 0..<bucketCount {
-            // Normalize bucket by runningMax and apply user-controlled sensitivity
-            var targetHeight = (rawBucketValues[k] * sensitivity) / runningMax
-            
-            // Apply power-law compression (x^0.62) to match human logarithmic decibel hearing.
-            // This pulls up low-to-mid detail dynamically while keeping beats snappy.
-            targetHeight = pow(targetHeight, 0.62)
-            targetHeight = min(max(targetHeight, 0.0), 1.0)
-            
-            // Temporal smoothing: instant responsive attack, fluid release
-            let prevHeight = smoothedHeights[k]
-            let coeff = (targetHeight > prevHeight) ? attackCoeff : currentRelease
-            let smoothed = prevHeight + coeff * (targetHeight - prevHeight)
-            smoothedHeights[k] = smoothed
-            
-            // --- Peak Indicator Physics (Constant Gravity Acceleration) ---
-            var peak = peakHeights[k]
-            var vel = peakVelocities[k]
-            var hold = peakHoldFrames[k]
-            
-            if smoothed >= peak {
-                peak = smoothed
-                vel = 0.0
-                hold = 8 // Hold peak suspended for ~130ms (8 frames) before falling
-            } else {
-                if hold > 0 {
-                    hold -= 1
-                } else {
-                    let gravity: Float = 0.006 // Smooth constant gravity pull
-                    vel += gravity
-                    peak -= vel
-                    if peak < smoothed {
-                        peak = smoothed
-                        vel = 0.0
-                    }
-                }
-            }
-            
-            peakHeights[k] = max(0.0, min(peak, 1.0))
-            peakVelocities[k] = vel
-            peakHoldFrames[k] = hold
-        }
-        
-        // 4. Low-Frequency Transient (Beat) Detection (50Hz - 180Hz)
+        // 2. Low-Frequency Transient (Beat) Detection (50Hz - 180Hz)
         var bassSum: Float = 0.0
         var bassCount = 0
         
@@ -281,9 +246,65 @@ public final class SpectrumAnalyzer: ObservableObject {
             // Detect transient (sudden spike above the moving average)
             let ratio = bassAverage > 0 ? (bassEnergy / bassAverage) : 1.0
             if ratio > 1.35 && bassEnergy > 0.005 {
-                // Beat trigger! Drive background pulse to max
-                pulseGlow = 1.0
+                // Beat trigger! Drive background pulse proportionally to the energy spike
+                let targetGlow = min(1.5, (ratio - 1.35) * 1.5 + 0.5)
+                pulseGlow = max(pulseGlow, targetGlow)
             }
+        }
+        
+        // 3. Adaptive Auto-Gain (Autosens) with Noise Gate
+        // Decay the running maximum slowly to track music dynamics
+        runningMax = runningMax * 0.994 + frameMax * 0.006
+        
+        // If the frame is extremely silent, increase the noise floor floor to prevent noise dancing
+        let noiseFloor: Float = (frameMax < 0.0005) ? 0.25 : 0.03
+        runningMax = max(runningMax, noiseFloor)
+        
+        // 4. Normalization, Compression, and Dynamic Attack/Release Smoothing + Peak Physics
+        let currentRelease = smoothness
+        
+        for k in 0..<bucketCount {
+            // Normalize bucket by runningMax and apply user-controlled sensitivity
+            var targetHeight = (rawBucketValues[k] * sensitivity) / runningMax
+            
+            // Apply power-law compression (x^0.62) to match human logarithmic decibel hearing
+            targetHeight = pow(targetHeight, 0.62)
+            targetHeight = min(max(targetHeight, 0.0), 1.0)
+            
+            // Temporal smoothing: instant responsive attack, fluid release
+            let prevHeight = smoothedHeights[k]
+            let coeff = (targetHeight > prevHeight) ? attackCoeff : currentRelease
+            let smoothed = prevHeight + coeff * (targetHeight - prevHeight)
+            smoothedHeights[k] = smoothed
+            
+            // --- Peak Indicator Physics (Constant Gravity Acceleration) ---
+            var peak = peakHeights[k]
+            var vel = peakVelocities[k]
+            var hold = peakHoldFrames[k]
+            
+            if smoothed >= peak {
+                peak = smoothed
+                vel = 0.0
+                // Hang peaks longer on stronger beats (15 frames) vs normal frames (8 frames)
+                let isStrongBeat = pulseGlow > 0.6
+                hold = isStrongBeat ? 15 : 8
+            } else {
+                if hold > 0 {
+                    hold -= 1
+                } else {
+                    let gravity: Float = 0.006 // Smooth constant gravity pull
+                    vel += gravity
+                    peak -= vel
+                    if peak < smoothed {
+                        peak = smoothed
+                        vel = 0.0
+                    }
+                }
+            }
+            
+            peakHeights[k] = max(0.0, min(peak, 1.0))
+            peakVelocities[k] = vel
+            peakHoldFrames[k] = hold
         }
         
         // Decay the glow pulse exponentially over time

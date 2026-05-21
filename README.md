@@ -177,19 +177,38 @@ wavebar/
     *   动力学迭代公式为：
         $$V_{new} = V_{prev} + \text{Coeff} \times (V_{target} - V_{prev})$$
 
-#### 4. 自动增益机制 (Autosens / Auto-Gain)
-*   **代码位置**：`Sources/SpectrumAnalyzer.swift` -> `processFrame(magnitudes:)` 中的 `runningMax` 更新逻辑。
+#### 4. 自动增益机制与智能自适应噪声门限 (Autosens & Noise Gate)
+*   **代码位置**：`Sources/SpectrumAnalyzer.swift` -> `processFrame(magnitudes:)` 中的增益计算逻辑。
 *   **修改指南**：
-    *   应用维持一个随时间缓慢衰减的幅值历史峰值 `runningMax`（每一帧以 `0.006` 的权重融合当前帧的最大幅值，以 `0.994` 的权重融合历史值）。
-    *   这保证了在整首音乐大声时频谱柱不会全体顶格，在音乐极其轻柔时又会自动放大细节。最低底噪门限限制在 `0.03`，防止静音时过度放大背景白噪声。
+    *   应用维持一个随时间缓慢衰减的幅值历史峰值 `runningMax`（每一帧以 `0.006` 的权重融合当前帧的最大幅值，以 `0.994` 的权重融合历史值）。这保证了在整首音乐大声时频谱柱不会全体顶格，在音乐极其轻柔时又会自动放大细节。
+    *   **智能自适应噪声门限 (Noise Gate)**：当检测到当前帧最大振幅极弱（`frameMax < 0.0005`，即处于静音、切歌或无音频输入状态）时，自动增益下限 `noiseFloor` 会自适应上调至 `0.25`（非静音时为标准 `0.03`）。这能彻底避免环境噪音或电线白噪声被强行放大而导致的频谱条在静音时“上下乱舞”，保持界面的优雅与宁静。
 
-#### 5. 瞬态重低音脉冲检测 (Beat Radial Glow)
-*   **代码位置**：`Sources/SpectrumAnalyzer.swift` -> `processFrame(magnitudes:)` 的底端 Bass 部分。
+#### 5. 瞬态重低音脉冲检测与比例能量光晕 (Continuous Beat Radial Glow)
+*   **代码位置**：`Sources/SpectrumAnalyzer.swift` -> `processFrame(magnitudes:)` 的中段。
 *   **修改指南**：
-    *   提取 `50Hz` 到 `180Hz` 频段对应的所有桶能量，计算出即时平均值 `bassEnergy`。
-    *   维护一个平滑基准值 `bassAverage = bassAverage * 0.97 + bassEnergy * 0.03`。
-    *   当即时低音能量比历史基准能量大出 **35%** (`ratio > 1.35`) 且绝对振幅大于阀值时，判定为一个强击鼓点，将 `pulseGlow` 设为 `1.0`。
-    *   `pulseGlow` 随后在每一帧以指数阻尼衰减（`* 0.86`），用来绑定并驱动 MainView 中背景发光层 (`RadialGradient`) 的亮度和大小，实现随节奏脉动闪烁的高端视觉感。
+    *   提取 `50Hz` 到 `180Hz` 频段对应的所有桶能量，计算出即时平均值 `bassEnergy`。维护一个平滑基准值 `bassAverage = bassAverage * 0.97 + bassEnergy * 0.03`。
+    *   当即时低音能量比历史基准能量大出 **35%** (`ratio > 1.35`) 且绝对振幅大于阈值时判定为一个有效鼓点。
+    *   **比例级脉冲强度 (Proportional Glow)**：触发时，`pulseGlow` 不再只是硬编码的二进制 `1.0`，而是采用连续比例映射公式 `min(1.5, (ratio - 1.35) * 1.5 + 0.5)`。这使得轻微的鼓点仅激发出温润微弱的环境底光，而重金属 Drop 级别的强力音浪瞬间爆发极高亮度的爆燃光晕。
+    *   `pulseGlow` 随后在每一帧以指数阻尼衰减（`* 0.86`），驱动 MainView 中背景发光层 (`RadialGradient`) 的亮度和大小，实现随节奏起伏的高端律动感。
+
+#### 6. 高频均值/最大值混合映射 (Hybrid HF Mapping)
+*   **代码位置**：`Sources/SpectrumAnalyzer.swift` -> `processFrame(magnitudes:)` 的分桶提取阶段。
+*   **修改指南**：
+    *   **高频细节重塑**：传统分桶在处理高于 `2000Hz` 的高频区（歌手吐字、沙锤、Hi-Hat 镲片）时，一个对数频段通常跨越几百个 FFT 采样点。单纯的“算术平均”会将瞬态高频噪声淹没。
+    *   **混合权重机制**：当分析频率大于 `2kHz` 时，算法引入基于频率跨度的插值比例（最高在 $8\text{kHz+}$ 达到 `60% 最大值 + 40% 均值` 的权重组合），既保证了高频大面积起伏的连贯性，又让清脆的瞬时高频打击乐信号以极致的瞬态响应脱颖而出。
+
+#### 7. 热辐射超频闪烁 (Emission Flash)
+*   **代码位置**：`Sources/MainView.swift` -> `Canvas` 绘制模块。
+*   **修改指南**：
+    *   应用使用高度优化的 macOS 原生 `Color.blend(with:weight:)` 对渐变色谱进行实时插值渲染。
+    *   当重鼓点触发时，利用主线程捕获的比例脉冲 `pulseGlow` 动态影响色彩。频谱条的顶部会按其位置权重，将原本的主题色瞬间混入高亮白色/霓虹色，造成类似白炽热铁在通电冲击下的“超频爆燃闪烁”视觉效果，大大增强了打击乐的眼球反馈。
+
+#### 8. 弹阻共振物理抖动 (Spring-Damped Camera Shake)
+*   **代码位置**：`Sources/MainView.swift` -> `DisplayLinkAction` 回调与 Canvas 布局。
+*   **修改指南**：
+    *   为了打破传统频谱只有柱子在动的单调性，应用在 VSYNC 硬件刷新帧级别引入了标准的 **胡克定律弹簧 - 阻尼器物理系统**（$F = -k \cdot x - c \cdot v$），其中刚度系数 $k=0.16$，阻尼比 $c=0.14$。
+    *   当发生振幅大于 `0.9` 的超强鼓点冲击时，给整个画布注入一个向下的瞬时初始速度脉冲 `shakeVelocity = glow * 3.5`。
+    *   整个 Canvas 画布（频谱条集合）会因此以极度逼真、紧致的机械感产生下沉和回弹物理颤动，模拟音箱在大音量下震碎空气的震动张力。
 
 ---
 
