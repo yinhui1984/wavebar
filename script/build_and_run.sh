@@ -44,6 +44,15 @@ mkdir -p "$MACOS_DIR"
 cp "${PRODUCT_DIR}/${EXECUTABLE_NAME}" "${MACOS_DIR}/${EXECUTABLE_NAME}"
 cp -R "${PRODUCT_DIR}/Wavebar_wavebar.bundle" "${APP_DIR}/Wavebar_wavebar.bundle"
 
+# Create Resources directory and copy the compiled AppIcon.icns
+RESOURCES_DIR="${CONTENTS_DIR}/Resources"
+mkdir -p "$RESOURCES_DIR"
+if [[ -f "Sources/AppIcon.icns" ]]; then
+    cp "Sources/AppIcon.icns" "${RESOURCES_DIR}/AppIcon.icns"
+else
+    echo "Warning: Sources/AppIcon.icns not found! Please run script/generate_icns.sh first." >&2
+fi
+
 cat > "${CONTENTS_DIR}/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -61,6 +70,8 @@ cat > "${CONTENTS_DIR}/Info.plist" <<'PLIST'
     <string>14.0</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Wavebar captures audio input to render the realtime spectrum visualizer.</string>
     <key>NSAudioCaptureUsageDescription</key>

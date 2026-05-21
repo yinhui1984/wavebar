@@ -15,7 +15,7 @@ let package = Package(
             name: "wavebar",
             dependencies: [],
             path: "Sources",
-            exclude: ["LiquidGel.metal"],
+            exclude: ["LiquidGel.metal", "AppIcon.icns"],
             resources: [
                 .process("default.metallib")
             ]
