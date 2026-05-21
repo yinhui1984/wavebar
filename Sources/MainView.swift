@@ -72,6 +72,7 @@ public enum VisualizerTheme: String, CaseIterable, Identifiable {
 public struct MainView: View {
     @ObservedObject var audioEngineManager: AudioEngineManager
     @ObservedObject var spectrumAnalyzer: SpectrumAnalyzer
+    @ObservedObject var volumeLinkManager = VolumeLinkManager.shared
     let ringBuffer: AudioRingBuffer
     let fftProcessor: FFTProcessor
     
@@ -545,9 +546,29 @@ public struct MainView: View {
                 }
             }
             
-            Toggle("LOW EQ", isOn: $spectrumAnalyzer.lowBoostEnabled)
+            HStack(spacing: 16) {
+                Toggle("LOW EQ", isOn: $spectrumAnalyzer.lowBoostEnabled)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 11, weight: .semibold))
+                
+                Toggle("VOLUME LINK", isOn: Binding(
+                    get: { volumeLinkManager.isEnabled },
+                    set: { newValue in
+                        if newValue {
+                            if volumeLinkManager.checkAccessibility(prompt: true) {
+                                volumeLinkManager.isEnabled = true
+                            } else {
+                                volumeLinkManager.isEnabled = false
+                                volumeLinkManager.openAccessibilitySettings()
+                            }
+                        } else {
+                            volumeLinkManager.isEnabled = false
+                        }
+                    }
+                ))
                 .toggleStyle(.checkbox)
                 .font(.system(size: 11, weight: .semibold))
+            }
             
             settingsSlider(
                 title: "LIQUID FX",
