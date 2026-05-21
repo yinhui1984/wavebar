@@ -10,6 +10,26 @@ public final class SpectrumAnalyzer: ObservableObject {
     @Published public var sensitivity: Float = 1.0
     @Published public var smoothness: Float = 0.12 // Release factor
     @Published public var lowBoostEnabled: Bool = true
+    @Published public var fMin: Float = 50.0 {
+        didSet {
+            let clamped = max(20.0, min(fMin, fMax / 2.0))
+            if clamped != fMin {
+                fMin = clamped
+            } else if fMin != oldValue {
+                regenerateBucketConfigs()
+            }
+        }
+    }
+    @Published public var fMax: Float = 8000.0 {
+        didSet {
+            let clamped = max(fMin * 2.0, min(fMax, 22000.0))
+            if clamped != fMax {
+                fMax = clamped
+            } else if fMax != oldValue {
+                regenerateBucketConfigs()
+            }
+        }
+    }
     @Published public var bucketCount: Int = 48 {
         didSet {
             if bucketCount != oldValue {
@@ -61,8 +81,8 @@ public final class SpectrumAnalyzer: ObservableObject {
     private func regenerateBucketConfigs() {
         bucketConfigs.removeAll()
         
-        let fMin: Float = 50.0
-        let fMax: Float = 8000.0
+        let fMin: Float = self.fMin
+        let fMax: Float = self.fMax
         let n = Float(fftSize)
         let fs = Float(sampleRate)
         
