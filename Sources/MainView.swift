@@ -97,251 +97,253 @@ public struct MainView: View {
     }
     
     public var body: some View {
-        ZStack {
-            // 1. Rich Deep-Space Background
-            Color(red: 0.03, green: 0.03, blue: 0.05)
+        GeometryReader { geometry in
+            ZStack {
+                // 1. Rich Deep-Space Background
+                Color(red: 0.03, green: 0.03, blue: 0.05)
+                    .edgesIgnoringSafeArea(.all)
+                
+                // 2. Beat-Driven Radial Glow Backdrop
+                let glowVal = spectrumAnalyzer.pulseGlow
+                RadialGradient(
+                    gradient: Gradient(colors: [
+                        selectedTheme.glowColor.opacity(Double(glowVal) * 0.35),
+                        selectedTheme.glowColor.opacity(Double(glowVal) * 0.1),
+                        Color.clear
+                    ]),
+                    center: .bottom,
+                    startRadius: 0,
+                    endRadius: min(350, max(120, geometry.size.width / 2))
+                )
+                .blendMode(.screen)
                 .edgesIgnoringSafeArea(.all)
-            
-            // 2. Beat-Driven Radial Glow Backdrop
-            let glowVal = spectrumAnalyzer.pulseGlow
-            RadialGradient(
-                gradient: Gradient(colors: [
-                    selectedTheme.glowColor.opacity(Double(glowVal) * 0.35),
-                    selectedTheme.glowColor.opacity(Double(glowVal) * 0.1),
-                    Color.clear
-                ]),
-                center: .bottom,
-                startRadius: 0,
-                endRadius: 350
-            )
-            .blendMode(.screen)
-            .edgesIgnoringSafeArea(.all)
-            .animation(.easeOut(duration: 0.1), value: glowVal)
-            
-            // 3. Hardware-Accelerated Spectrum Canvas (Driven reactively by @Published smoothedHeights)
-            Canvas { context, size in
-                let heights = spectrumAnalyzer.smoothedHeights
-                // let peaks = spectrumAnalyzer.peakHeights
-                let count = heights.count
-                guard count > 0 else { return }
+                .animation(.easeOut(duration: 0.1), value: glowVal)
                 
-                let spacing: CGFloat = 2.5
-                let totalSpacing = spacing * CGFloat(count - 1)
-                let barWidth = max(1.0, (size.width - totalSpacing) / CGFloat(count))
-                
-                // Beat-driven overall canvas resonant vertical scaling (adds up to 8% vertical expansion on strong beats)
-                let pulseScale = 1.0 + CGFloat(spectrumAnalyzer.pulseGlow) * 0.08
-                
-                // Top Y coordinate of the stationary gradient (top of maximum possible bar height)
-                let gradientTopY = size.height - 10 - (size.height - 45) * 1.08
-                
-                for i in 0..<count {
-                    let valFraction = CGFloat(heights[i])
-                    // Scale bars using dynamic pulse scale
-                    let barHeight = max(1.5, valFraction * (size.height - 45) * pulseScale)
+                // 3. Hardware-Accelerated Spectrum Canvas (Driven reactively by @Published smoothedHeights)
+                Canvas { context, size in
+                    let heights = spectrumAnalyzer.smoothedHeights
+                    let count = heights.count
+                    guard count > 0 else { return }
                     
-                    let x = CGFloat(i) * (barWidth + spacing)
-                    let y = size.height - barHeight - 10
+                    // Dynamic styling based on window size
+                    let isSmall = size.width < 320
+                    let spacing: CGFloat = isSmall ? 1.5 : 2.5
                     
-                    let rect = CGRect(x: x, y: y, width: barWidth, height: barHeight)
-                    let roundedPath = Path(roundedRect: rect, cornerRadius: min(barWidth / 2, 3))
+                    // Calculate maximum bars that can fit beautifully
+                    let minBarWidthAndSpacing: CGFloat = isSmall ? 3.5 : 5.0
+                    let maxBars = max(12, Int(size.width / minBarWidthAndSpacing))
+                    let finalCount = min(count, maxBars)
                     
-                    // Vertical Color Gradient (globally aligned horizontally to prevent dizzying stretching)
-                    let barGradient = Gradient(colors: selectedTheme.colors)
+                    let totalSpacing = spacing * CGFloat(finalCount - 1)
+                    let barWidth = max(1.0, (size.width - totalSpacing) / CGFloat(finalCount))
                     
-                    context.fill(
-                        roundedPath,
-                        with: .linearGradient(
-                            barGradient,
-                            startPoint: CGPoint(x: x + barWidth / 2, y: size.height - 10),
-                            endPoint: CGPoint(x: x + barWidth / 2, y: gradientTopY)
-                        )
-                    )
+                    // Beat-driven overall canvas resonant vertical scaling (adds up to 8% vertical expansion on strong beats)
+                    let pulseScale = 1.0 + CGFloat(spectrumAnalyzer.pulseGlow) * 0.08
                     
-                    // --- Draw Floating Peak Dot (with Gravity Physics) ---
-                    // Temporarily commented out to prevent visual afterimage/persistence discomfort on dark backgrounds
-                    /*
-                    if i < peaks.count {
-                        let peakFraction = CGFloat(peaks[i])
-                        let peakHeight = peakFraction * (size.height - 45) * pulseScale
-                        let peakY = size.height - peakHeight - 10
+                    // Top Y coordinate of the stationary gradient (top of maximum possible bar height)
+                    let gradientTopY = size.height - 10 - (size.height - 45) * 1.08
+                    
+                    for i in 0..<finalCount {
+                        // Linearly map the final bar index to the original FFT bin count
+                        let originalIndex: Int
+                        if finalCount == count {
+                            originalIndex = i
+                        } else {
+                            originalIndex = Int(round(Double(i) * Double(count - 1) / Double(finalCount - 1)))
+                        }
                         
-                        // Render a floating horizontal bar at peak height
-                        let peakRect = CGRect(x: x, y: peakY - 3, width: barWidth, height: 2)
-                        let peakPath = Path(roundedRect: peakRect, cornerRadius: 1)
-                        context.fill(peakPath, with: .color(Color.white.opacity(0.75)))
+                        let valFraction = CGFloat(heights[max(0, min(originalIndex, count - 1))])
+                        // Scale bars using dynamic pulse scale
+                        let barHeight = max(1.5, valFraction * (size.height - 45) * pulseScale)
+                        
+                        let x = CGFloat(i) * (barWidth + spacing)
+                        let y = size.height - barHeight - 10
+                        
+                        let rect = CGRect(x: x, y: y, width: barWidth, height: barHeight)
+                        let roundedPath = Path(roundedRect: rect, cornerRadius: min(barWidth / 2, 3))
+                        
+                        // Vertical Color Gradient (globally aligned horizontally to prevent dizzying stretching)
+                        let barGradient = Gradient(colors: selectedTheme.colors)
+                        
+                        context.fill(
+                            roundedPath,
+                            with: .linearGradient(
+                                barGradient,
+                                startPoint: CGPoint(x: x + barWidth / 2, y: size.height - 10),
+                                endPoint: CGPoint(x: x + barWidth / 2, y: gradientTopY)
+                            )
+                        )
                     }
-                    */
                 }
-            }
-            .edgesIgnoringSafeArea(.horizontal)
-            
-            // 4. Input Failure Overlay Warning
-            if let error = audioEngineManager.errorMessage {
-                VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 32))
-                        .foregroundColor(.amberPrimary)
-                    Text(error)
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                    
-                    Button("Refresh Devices") {
-                        audioEngineManager.refreshDevices()
-                        audioEngineManager.autoSelectDevice()
+                .edgesIgnoringSafeArea(.horizontal)
+                
+                // 4. Input Failure Overlay Warning
+                if let error = audioEngineManager.errorMessage {
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 32))
+                            .foregroundColor(.amberPrimary)
+                        Text(error)
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                        
+                        Button("Refresh Devices") {
+                            audioEngineManager.refreshDevices()
+                            audioEngineManager.autoSelectDevice()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.teal)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.teal)
+                    .padding(24)
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(12)
+                    .shadow(radius: 10)
                 }
-                .padding(24)
-                .background(.ultraThinMaterial)
-                .cornerRadius(12)
-                .shadow(radius: 10)
-            }
-            
-            // 5. Floating Frosted Control Bar
-            VStack {
-                Spacer()
-                if showControls {
-                    HStack(spacing: 16) {
-                        // Device Selector
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("AUDIO INPUT")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.gray)
-                            Picker("", selection: Binding(
-                                get: { audioEngineManager.selectedDeviceID ?? 0 },
-                                set: { newID in
-                                    if newID != 0 {
-                                        audioEngineManager.start(deviceID: newID)
-                                        spectrumAnalyzer.updateSampleRate(audioEngineManager.sampleRate)
+                
+                // 5. Floating Frosted Control Bar (dynamically hidden when window is too small)
+                VStack {
+                    Spacer()
+                    if showControls && geometry.size.height >= 180 && geometry.size.width >= 550 {
+                        HStack(spacing: 16) {
+                            // Device Selector
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("AUDIO INPUT")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(.gray)
+                                Picker("", selection: Binding(
+                                    get: { audioEngineManager.selectedDeviceID ?? 0 },
+                                    set: { newID in
+                                        if newID != 0 {
+                                            audioEngineManager.start(deviceID: newID)
+                                            spectrumAnalyzer.updateSampleRate(audioEngineManager.sampleRate)
+                                        }
+                                    }
+                                )) {
+                                    Text("Select Input Device...").tag(UInt32(0))
+                                    ForEach(audioEngineManager.devices, id: \.id) { dev in
+                                        Text(dev.name).tag(dev.id)
                                     }
                                 }
-                            )) {
-                                Text("Select Input Device...").tag(UInt32(0))
-                                ForEach(audioEngineManager.devices, id: \.id) { dev in
-                                    Text(dev.name).tag(dev.id)
+                                .pickerStyle(.menu)
+                                .frame(width: 140)
+                            }
+                            
+                            Divider().frame(height: 24)
+                            
+                            // Theme Selector
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("COLOR THEME")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(.gray)
+                                Picker("", selection: $selectedTheme) {
+                                    ForEach(VisualizerTheme.allCases) { theme in
+                                        Text(theme.rawValue).tag(theme)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .frame(width: 100)
+                            }
+                            
+                            Divider().frame(height: 24)
+                            
+                            // Sensitivity
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("SENSITIVITY")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(.gray)
+                                HStack {
+                                    Image(systemName: "slider.horizontal.3")
+                                        .font(.caption)
+                                        .foregroundColor(.teal)
+                                    Slider(value: $spectrumAnalyzer.sensitivity, in: 0.3...3.0)
+                                        .frame(width: 70)
                                 }
                             }
-                            .pickerStyle(.menu)
-                            .frame(width: 140)
-                        }
-                        
-                        Divider().frame(height: 24)
-                        
-                        // Theme Selector
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("COLOR THEME")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.gray)
-                            Picker("", selection: $selectedTheme) {
-                                ForEach(VisualizerTheme.allCases) { theme in
-                                    Text(theme.rawValue).tag(theme)
+                            
+                            Divider().frame(height: 24)
+                            
+                            // Smoothness (Release)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("DECAY SMOOTH")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(.gray)
+                                HStack {
+                                    Image(systemName: "waveform.path")
+                                        .font(.caption)
+                                        .foregroundColor(.teal)
+                                    Slider(value: $spectrumAnalyzer.smoothness, in: 0.03...0.30)
+                                        .frame(width: 70)
                                 }
                             }
-                            .pickerStyle(.menu)
-                            .frame(width: 100)
-                        }
-                        
-                        Divider().frame(height: 24)
-                        
-                        // Sensitivity
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("SENSITIVITY")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.gray)
-                            HStack {
-                                Image(systemName: "slider.horizontal.3")
+                            
+                            Divider().frame(height: 24)
+                            
+                            // Bar count
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("BARS")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(.gray)
+                                HStack {
+                                    Image(systemName: "chart.bar")
+                                        .font(.caption)
+                                        .foregroundColor(.teal)
+                                    Slider(value: Binding(
+                                        get: { Double(spectrumAnalyzer.bucketCount) },
+                                        set: { spectrumAnalyzer.bucketCount = Int($0) }
+                                    ), in: 24...96, step: 4)
+                                        .frame(width: 70)
+                                }
+                            }
+                            
+                            Divider().frame(height: 24)
+                            
+                            // EQ Boost Toggle
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("LOW EQ")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(.gray)
+                                Toggle("Boost Bass", isOn: $spectrumAnalyzer.lowBoostEnabled)
+                                    .toggleStyle(.checkbox)
                                     .font(.caption)
-                                    .foregroundColor(.teal)
-                                Slider(value: $spectrumAnalyzer.sensitivity, in: 0.3...3.0)
-                                    .frame(width: 70)
                             }
                         }
-                        
-                        Divider().frame(height: 24)
-                        
-                        // Smoothness (Release)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("DECAY SMOOTH")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.gray)
-                            HStack {
-                                Image(systemName: "waveform.path")
-                                    .font(.caption)
-                                    .foregroundColor(.teal)
-                                Slider(value: $spectrumAnalyzer.smoothness, in: 0.03...0.30)
-                                    .frame(width: 70)
-                            }
-                        }
-                        
-                        Divider().frame(height: 24)
-                        
-                        // Bar count
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("BARS")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.gray)
-                            HStack {
-                                Image(systemName: "chart.bar")
-                                    .font(.caption)
-                                    .foregroundColor(.teal)
-                                Slider(value: Binding(
-                                    get: { Double(spectrumAnalyzer.bucketCount) },
-                                    set: { spectrumAnalyzer.bucketCount = Int($0) }
-                                ), in: 24...96, step: 4)
-                                    .frame(width: 70)
-                            }
-                        }
-                        
-                        Divider().frame(height: 24)
-                        
-                        // EQ Boost Toggle
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("LOW EQ")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.gray)
-                            Toggle("Boost Bass", isOn: $spectrumAnalyzer.lowBoostEnabled)
-                                .toggleStyle(.checkbox)
-                                .font(.caption)
-                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(16)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.4), radius: 10, y: 5)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(16)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                    )
-                    .shadow(color: Color.black.opacity(0.4), radius: 10, y: 5)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .padding(.bottom, 16)
+            }
+            .onHover { inside in
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showControls = inside
                 }
             }
-            .padding(.bottom, 16)
-        }
-        .onHover { inside in
-            withAnimation(.easeInOut(duration: 0.3)) {
-                showControls = inside
+            .onReceive(timer) { _ in
+                // Execute real-time audio DSP calculations at 60 FPS on the main thread
+                let fftSize = fftProcessor.fftSize
+                spectrumAnalyzer.updateSampleRate(audioEngineManager.sampleRate)
+                
+                // A. Read latest audio frames
+                ringBuffer.readLatest(count: fftSize, into: &bufferHolder.sampleBuffer)
+                
+                // B. Run FFT analysis
+                fftProcessor.analyze(samples: bufferHolder.sampleBuffer, magnitudes: &bufferHolder.magnitudes)
+                
+                // C. Feed spectral results to dynamic smoothing and shaping
+                spectrumAnalyzer.processFrame(magnitudes: bufferHolder.magnitudes)
             }
         }
-        .onReceive(timer) { _ in
-            // Execute real-time audio DSP calculations at 60 FPS on the main thread
-            let fftSize = fftProcessor.fftSize
-            spectrumAnalyzer.updateSampleRate(audioEngineManager.sampleRate)
-            
-            // A. Read latest audio frames
-            ringBuffer.readLatest(count: fftSize, into: &bufferHolder.sampleBuffer)
-            
-            // B. Run FFT analysis
-            fftProcessor.analyze(samples: bufferHolder.sampleBuffer, magnitudes: &bufferHolder.magnitudes)
-            
-            // C. Feed spectral results to dynamic smoothing and shaping
-            spectrumAnalyzer.processFrame(magnitudes: bufferHolder.magnitudes)
-        }
-        .frame(minWidth: 640, minHeight: 400)
+        .frame(minWidth: 160, minHeight: 60)
     }
 }
 

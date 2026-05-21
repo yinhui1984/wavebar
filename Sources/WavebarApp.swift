@@ -9,6 +9,43 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // This registers it in the macOS Dock, brings it to the front, and handles key bindings.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        
+        // Listen for window key/focus events to dynamically show/hide window control buttons
+        NotificationCenter.default.addObserver(self, selector: #selector(windowDidBecomeKey(_:)), name: NSWindow.didBecomeKeyNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(windowDidResignKey(_:)), name: NSWindow.didResignKeyNotification, object: nil)
+        
+        // Set up initial windows after they have had a chance to render
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            for window in NSApp.windows {
+                self.configureWindow(window)
+            }
+        }
+    }
+    
+    @objc func windowDidBecomeKey(_ notification: Notification) {
+        if let window = notification.object as? NSWindow {
+            configureWindow(window, isKey: true)
+        }
+    }
+    
+    @objc func windowDidResignKey(_ notification: Notification) {
+        if let window = notification.object as? NSWindow {
+            configureWindow(window, isKey: false)
+        }
+    }
+    
+    private func configureWindow(_ window: NSWindow, isKey: Bool? = nil) {
+        // Run on main thread to prevent threading issues with AppKit
+        DispatchQueue.main.async {
+            // Keep window floating on top for premium picture-in-picture convenience
+            window.level = .floating
+            
+            let keyState = isKey ?? window.isKeyWindow
+            // Hide standard close/minimize/maximize buttons when window is not active/focused
+            window.standardWindowButton(.closeButton)?.isHidden = !keyState
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = !keyState
+            window.standardWindowButton(.zoomButton)?.isHidden = !keyState
+        }
     }
 }
 
