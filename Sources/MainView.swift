@@ -88,11 +88,14 @@ public struct MainView: View {
     @State private var displayLinkAction: DisplayLinkAction? = nil
     @State private var shakeOffset: CGFloat = 0.0
     @State private var shakeVelocity: CGFloat = 0.0
-    @State private var isLiquidMode: Bool = {
-        if let val = UserDefaults.standard.object(forKey: "wavebar.isLiquidMode") as? Bool {
-            return val
+    @State private var liquidIntensity: Double = {
+        if let saved = UserDefaults.standard.object(forKey: "wavebar.liquidIntensity") as? Double {
+            return min(max(saved, 0.0), 1.0)
         }
-        return true
+        if let legacyEnabled = UserDefaults.standard.object(forKey: "wavebar.isLiquidMode") as? Bool {
+            return legacyEnabled ? 0.55 : 0.0
+        }
+        return 0.55
     }()
     
     // Drag Zones for horizontal frequency range adjustments
@@ -208,17 +211,18 @@ public struct MainView: View {
                 
                 spectrumCanvas
                 .overlay {
-                    if isLiquidMode {
+                    if liquidIntensity > 0.001 {
                         // Keep the plain spectrum visible underneath; Liquid FX is an enhancement layer only.
                         spectrumCanvas
                             .layerEffect(
                                 ShaderLibrary.bundle(.module).liquidGelShader(
                                     .float2(Float(geometry.size.width), Float(geometry.size.height)),
                                     .float(Float(spectrumAnalyzer.pulseGlow)),
-                                    .float(0.35)
+                                    .float(Float(liquidIntensity))
                                 ),
                                 maxSampleOffset: CGSize(width: 8, height: 8)
                             )
+                            .opacity(liquidIntensity)
                             .allowsHitTesting(false)
                     }
                 }
@@ -491,14 +495,18 @@ public struct MainView: View {
                             
                             Divider().frame(height: 24)
                             
-                            // Liquid FX Toggle
+                            // Liquid FX
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("LIQUID FX")
                                     .font(.system(size: 8, weight: .bold))
                                     .foregroundColor(.gray)
-                                Toggle("Liquid Gel", isOn: $isLiquidMode)
-                                    .toggleStyle(.checkbox)
-                                    .font(.caption)
+                                HStack {
+                                    Image(systemName: "drop.fill")
+                                        .font(.caption)
+                                        .foregroundColor(.teal)
+                                    Slider(value: $liquidIntensity, in: 0.0...1.0, step: 0.05)
+                                        .frame(width: 70)
+                                }
                             }
                             
                             Divider().frame(height: 24)
@@ -586,8 +594,8 @@ public struct MainView: View {
             .onChange(of: selectedTheme) { _, newTheme in
                 UserDefaults.standard.set(newTheme.rawValue, forKey: "wavebar.selectedTheme")
             }
-            .onChange(of: isLiquidMode) { _, newValue in
-                UserDefaults.standard.set(newValue, forKey: "wavebar.isLiquidMode")
+            .onChange(of: liquidIntensity) { _, newValue in
+                UserDefaults.standard.set(newValue, forKey: "wavebar.liquidIntensity")
             }
         }
         .frame(minWidth: 160, minHeight: 30)
