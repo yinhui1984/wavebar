@@ -13,6 +13,61 @@ private final class DSPBufferHolder {
     }
 }
 
+public enum VisualizerTheme: String, CaseIterable, Identifiable {
+    case aurora = "Aurora"      // Deep Indigo -> Teal -> Cyan -> Mint White
+    case midnight = "Midnight"  // Indigo -> Violet -> Magenta -> Pink
+    case copper = "Sunset"      // Burgundy -> Crimson -> Amber -> Gold
+    case monochrome = "Silver"  // Graphite -> Slate -> Silver -> White
+    
+    public var id: String { self.rawValue }
+    
+    public var colors: [Color] {
+        switch self {
+        case .aurora:
+            return [
+                Color(red: 0.05, green: 0.35, blue: 0.55).opacity(0.85),
+                Color(red: 0.0, green: 0.75, blue: 0.70),
+                Color(red: 0.0, green: 0.9, blue: 0.85),
+                Color(red: 0.8, green: 1.0, blue: 0.9)
+            ]
+        case .midnight:
+            return [
+                Color(red: 0.15, green: 0.05, blue: 0.45).opacity(0.85),
+                Color(red: 0.35, green: 0.1, blue: 0.75),
+                Color(red: 0.65, green: 0.2, blue: 0.85),
+                Color(red: 0.95, green: 0.6, blue: 0.85)
+            ]
+        case .copper:
+            return [
+                Color(red: 0.35, green: 0.05, blue: 0.15).opacity(0.85),
+                Color(red: 0.7, green: 0.15, blue: 0.15),
+                Color(red: 0.95, green: 0.45, blue: 0.15),
+                Color(red: 1.0, green: 0.85, blue: 0.5)
+            ]
+        case .monochrome:
+            return [
+                Color(red: 0.15, green: 0.18, blue: 0.22).opacity(0.85),
+                Color(red: 0.35, green: 0.38, blue: 0.42),
+                Color(red: 0.65, green: 0.68, blue: 0.72),
+                Color(red: 0.95, green: 0.97, blue: 1.0)
+            ]
+        }
+    }
+    
+    public var glowColor: Color {
+        switch self {
+        case .aurora:
+            return Color.teal
+        case .midnight:
+            return Color.purple
+        case .copper:
+            return Color.orange
+        case .monochrome:
+            return Color(red: 0.4, green: 0.5, blue: 0.6)
+        }
+    }
+}
+
 public struct MainView: View {
     @ObservedObject var audioEngineManager: AudioEngineManager
     @ObservedObject var spectrumAnalyzer: SpectrumAnalyzer
@@ -21,6 +76,7 @@ public struct MainView: View {
     
     @State private var bufferHolder: DSPBufferHolder
     @State private var showControls: Bool = true
+    @State private var selectedTheme: VisualizerTheme = .aurora
     
     // High-frequency publisher timer to drive real-time analysis at 60 FPS
     private let timer = Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()
@@ -50,8 +106,8 @@ public struct MainView: View {
             let glowVal = spectrumAnalyzer.pulseGlow
             RadialGradient(
                 gradient: Gradient(colors: [
-                    Color.teal.opacity(Double(glowVal) * 0.35),
-                    Color.teal.opacity(Double(glowVal) * 0.1),
+                    selectedTheme.glowColor.opacity(Double(glowVal) * 0.35),
+                    selectedTheme.glowColor.opacity(Double(glowVal) * 0.1),
                     Color.clear
                 ]),
                 center: .bottom,
@@ -65,6 +121,7 @@ public struct MainView: View {
             // 3. Hardware-Accelerated Spectrum Canvas (Driven reactively by @Published smoothedHeights)
             Canvas { context, size in
                 let heights = spectrumAnalyzer.smoothedHeights
+                // let peaks = spectrumAnalyzer.peakHeights
                 let count = heights.count
                 guard count > 0 else { return }
                 
@@ -72,10 +129,16 @@ public struct MainView: View {
                 let totalSpacing = spacing * CGFloat(count - 1)
                 let barWidth = max(1.0, (size.width - totalSpacing) / CGFloat(count))
                 
+                // Beat-driven overall canvas resonant vertical scaling (adds up to 8% vertical expansion on strong beats)
+                let pulseScale = 1.0 + CGFloat(spectrumAnalyzer.pulseGlow) * 0.08
+                
+                // Top Y coordinate of the stationary gradient (top of maximum possible bar height)
+                let gradientTopY = size.height - 10 - (size.height - 45) * 1.08
+                
                 for i in 0..<count {
                     let valFraction = CGFloat(heights[i])
-                    // Give a minimum scale so bars don't fully disappear
-                    let barHeight = max(1.5, valFraction * (size.height - 40))
+                    // Scale bars using dynamic pulse scale
+                    let barHeight = max(1.5, valFraction * (size.height - 45) * pulseScale)
                     
                     let x = CGFloat(i) * (barWidth + spacing)
                     let y = size.height - barHeight - 10
@@ -83,22 +146,32 @@ public struct MainView: View {
                     let rect = CGRect(x: x, y: y, width: barWidth, height: barHeight)
                     let roundedPath = Path(roundedRect: rect, cornerRadius: min(barWidth / 2, 3))
                     
-                    // Vertical Color Gradient for premium visual appeal
-                    let barGradient = Gradient(colors: [
-                        Color(red: 0.0, green: 0.8, blue: 0.6).opacity(0.85), // Teal bottom
-                        Color(red: 0.0, green: 0.9, blue: 0.95),             // Cyan mid
-                        Color(red: 1.0, green: 0.65, blue: 0.15),            // Amber high
-                        Color.white                                          // Peak white
-                    ])
+                    // Vertical Color Gradient (globally aligned horizontally to prevent dizzying stretching)
+                    let barGradient = Gradient(colors: selectedTheme.colors)
                     
                     context.fill(
                         roundedPath,
                         with: .linearGradient(
                             barGradient,
                             startPoint: CGPoint(x: x + barWidth / 2, y: size.height - 10),
-                            endPoint: CGPoint(x: x + barWidth / 2, y: y)
+                            endPoint: CGPoint(x: x + barWidth / 2, y: gradientTopY)
                         )
                     )
+                    
+                    // --- Draw Floating Peak Dot (with Gravity Physics) ---
+                    // Temporarily commented out to prevent visual afterimage/persistence discomfort on dark backgrounds
+                    /*
+                    if i < peaks.count {
+                        let peakFraction = CGFloat(peaks[i])
+                        let peakHeight = peakFraction * (size.height - 45) * pulseScale
+                        let peakY = size.height - peakHeight - 10
+                        
+                        // Render a floating horizontal bar at peak height
+                        let peakRect = CGRect(x: x, y: peakY - 3, width: barWidth, height: 2)
+                        let peakPath = Path(roundedRect: peakRect, cornerRadius: 1)
+                        context.fill(peakPath, with: .color(Color.white.opacity(0.75)))
+                    }
+                    */
                 }
             }
             .edgesIgnoringSafeArea(.horizontal)
@@ -132,7 +205,7 @@ public struct MainView: View {
             VStack {
                 Spacer()
                 if showControls {
-                    HStack(spacing: 20) {
+                    HStack(spacing: 16) {
                         // Device Selector
                         VStack(alignment: .leading, spacing: 4) {
                             Text("AUDIO INPUT")
@@ -153,7 +226,23 @@ public struct MainView: View {
                                 }
                             }
                             .pickerStyle(.menu)
-                            .frame(width: 160)
+                            .frame(width: 140)
+                        }
+                        
+                        Divider().frame(height: 24)
+                        
+                        // Theme Selector
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("COLOR THEME")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundColor(.gray)
+                            Picker("", selection: $selectedTheme) {
+                                ForEach(VisualizerTheme.allCases) { theme in
+                                    Text(theme.rawValue).tag(theme)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .frame(width: 100)
                         }
                         
                         Divider().frame(height: 24)
@@ -164,11 +253,11 @@ public struct MainView: View {
                                 .font(.system(size: 8, weight: .bold))
                                 .foregroundColor(.gray)
                             HStack {
-                                    Image(systemName: "slider.horizontal.3")
-                                        .font(.caption)
-                                        .foregroundColor(.teal)
+                                Image(systemName: "slider.horizontal.3")
+                                    .font(.caption)
+                                    .foregroundColor(.teal)
                                 Slider(value: $spectrumAnalyzer.sensitivity, in: 0.3...3.0)
-                                    .frame(width: 80)
+                                    .frame(width: 70)
                             }
                         }
                         
@@ -180,11 +269,11 @@ public struct MainView: View {
                                 .font(.system(size: 8, weight: .bold))
                                 .foregroundColor(.gray)
                             HStack {
-                                    Image(systemName: "waveform.path")
-                                        .font(.caption)
-                                        .foregroundColor(.teal)
+                                Image(systemName: "waveform.path")
+                                    .font(.caption)
+                                    .foregroundColor(.teal)
                                 Slider(value: $spectrumAnalyzer.smoothness, in: 0.03...0.30)
-                                    .frame(width: 80)
+                                    .frame(width: 70)
                             }
                         }
                         
@@ -196,14 +285,14 @@ public struct MainView: View {
                                 .font(.system(size: 8, weight: .bold))
                                 .foregroundColor(.gray)
                             HStack {
-                                    Image(systemName: "chart.bar")
-                                        .font(.caption)
-                                        .foregroundColor(.teal)
+                                Image(systemName: "chart.bar")
+                                    .font(.caption)
+                                    .foregroundColor(.teal)
                                 Slider(value: Binding(
                                     get: { Double(spectrumAnalyzer.bucketCount) },
                                     set: { spectrumAnalyzer.bucketCount = Int($0) }
                                 ), in: 24...96, step: 4)
-                                .frame(width: 80)
+                                    .frame(width: 70)
                             }
                         }
                         
@@ -219,8 +308,8 @@ public struct MainView: View {
                                 .font(.caption)
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                     .background(.ultraThinMaterial)
                     .cornerRadius(16)
                     .overlay(

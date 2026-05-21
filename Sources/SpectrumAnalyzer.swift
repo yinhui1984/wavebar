@@ -20,13 +20,17 @@ public final class SpectrumAnalyzer: ObservableObject {
     
     // MARK: - Output States for SwiftUI
     @Published public var smoothedHeights: [Float] = []
+    @Published public var peakHeights: [Float] = []
     @Published public var pulseGlow: Float = 0.0
     
-    // MARK: - Internal DSP States
+    // MARK: - Internal DSP & Physics States
     private var sampleRate: Double = 44100.0
     private var runningMax: Float = 0.1
     private var bassAverage: Float = 0.05
-    private var attackCoeff: Float = 0.65 // Fast attack
+    private var attackCoeff: Float = 0.92 // Instant responsive attack
+    
+    private var peakVelocities: [Float] = []
+    private var peakHoldFrames: [Int] = []
     
     private struct BucketConfig {
         let startBin: Int
@@ -38,6 +42,9 @@ public final class SpectrumAnalyzer: ObservableObject {
     public init(fftSize: Int = 2048) {
         self.fftSize = fftSize
         self.smoothedHeights = [Float](repeating: 0.0, count: bucketCount)
+        self.peakHeights = [Float](repeating: 0.0, count: bucketCount)
+        self.peakVelocities = [Float](repeating: 0.0, count: bucketCount)
+        self.peakHoldFrames = [Int](repeating: 0, count: bucketCount)
         regenerateBucketConfigs()
     }
     
@@ -77,9 +84,14 @@ public final class SpectrumAnalyzer: ObservableObject {
             bucketConfigs.append(BucketConfig(startBin: start, endBin: end, centerFrequency: centerFreq))
         }
         
-        // Resize smoothed array to match bucket count
+        // Resize dynamic physics buffers to match bucket count
         if smoothedHeights.count != bucketCount {
             smoothedHeights = [Float](repeating: 0.0, count: bucketCount)
+        }
+        if peakHeights.count != bucketCount {
+            peakHeights = [Float](repeating: 0.0, count: bucketCount)
+            peakVelocities = [Float](repeating: 0.0, count: bucketCount)
+            peakHoldFrames = [Int](repeating: 0, count: bucketCount)
         }
     }
     
@@ -141,18 +153,50 @@ public final class SpectrumAnalyzer: ObservableObject {
         runningMax = runningMax * 0.994 + frameMax * 0.006
         runningMax = max(runningMax, 0.03) // Floor to prevent noise boosting during silence
         
-        // 3. Normalization and Attack/Release Smoothing
-        let currentRelease = smoothness // Bind release directly to adjustable smoothness slider
+        // 3. Normalization, Compression, and Dynamic Attack/Release Smoothing
+        let currentRelease = smoothness
         
         for k in 0..<bucketCount {
             // Normalize bucket by runningMax and apply user-controlled sensitivity
             var targetHeight = (rawBucketValues[k] * sensitivity) / runningMax
+            
+            // Apply power-law compression (x^0.62) to match human logarithmic decibel hearing.
+            // This pulls up low-to-mid detail dynamically while keeping beats snappy.
+            targetHeight = pow(targetHeight, 0.62)
             targetHeight = min(max(targetHeight, 0.0), 1.0)
             
-            // Temporal smoothing: instant attack, fluid release
+            // Temporal smoothing: instant responsive attack, fluid release
             let prevHeight = smoothedHeights[k]
             let coeff = (targetHeight > prevHeight) ? attackCoeff : currentRelease
-            smoothedHeights[k] = prevHeight + coeff * (targetHeight - prevHeight)
+            let smoothed = prevHeight + coeff * (targetHeight - prevHeight)
+            smoothedHeights[k] = smoothed
+            
+            // --- Peak Indicator Physics (Constant Gravity Acceleration) ---
+            var peak = peakHeights[k]
+            var vel = peakVelocities[k]
+            var hold = peakHoldFrames[k]
+            
+            if smoothed >= peak {
+                peak = smoothed
+                vel = 0.0
+                hold = 8 // Hold peak suspended for ~130ms (8 frames) before falling
+            } else {
+                if hold > 0 {
+                    hold -= 1
+                } else {
+                    let gravity: Float = 0.006 // Smooth constant gravity pull
+                    vel += gravity
+                    peak -= vel
+                    if peak < smoothed {
+                        peak = smoothed
+                        vel = 0.0
+                    }
+                }
+            }
+            
+            peakHeights[k] = max(0.0, min(peak, 1.0))
+            peakVelocities[k] = vel
+            peakHoldFrames[k] = hold
         }
         
         // 4. Low-Frequency Transient (Beat) Detection (50Hz - 180Hz)
