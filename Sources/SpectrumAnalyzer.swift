@@ -7,32 +7,73 @@ public final class SpectrumAnalyzer: ObservableObject {
     private let fftSize: Int
     
     // MARK: - Parameters (Main-Thread Accessible)
-    @Published public var sensitivity: Float = 1.0
-    @Published public var smoothness: Float = 0.12 // Release factor
-    @Published public var lowBoostEnabled: Bool = true
-    @Published public var fMin: Float = 50.0 {
+    @Published public var sensitivity: Float = {
+        let saved = UserDefaults.standard.float(forKey: "wavebar.sensitivity")
+        return saved > 0.0 ? saved : 1.0
+    }() {
+        didSet {
+            UserDefaults.standard.set(sensitivity, forKey: "wavebar.sensitivity")
+        }
+    }
+    
+    @Published public var smoothness: Float = {
+        let saved = UserDefaults.standard.float(forKey: "wavebar.smoothness")
+        return saved > 0.0 ? saved : 0.12 // Release factor
+    }() {
+        didSet {
+            UserDefaults.standard.set(smoothness, forKey: "wavebar.smoothness")
+        }
+    }
+    
+    @Published public var lowBoostEnabled: Bool = {
+        return UserDefaults.standard.object(forKey: "wavebar.lowBoostEnabled") as? Bool ?? true
+    }() {
+        didSet {
+            UserDefaults.standard.set(lowBoostEnabled, forKey: "wavebar.lowBoostEnabled")
+        }
+    }
+    
+    @Published public var fMin: Float = {
+        let saved = UserDefaults.standard.float(forKey: "wavebar.fMin")
+        return saved > 0.0 ? saved : 50.0
+    }() {
         didSet {
             let clamped = max(20.0, min(fMin, fMax / 2.0))
             if clamped != fMin {
                 fMin = clamped
-            } else if fMin != oldValue {
-                regenerateBucketConfigs()
+            } else {
+                UserDefaults.standard.set(fMin, forKey: "wavebar.fMin")
+                if fMin != oldValue {
+                    regenerateBucketConfigs()
+                }
             }
         }
     }
-    @Published public var fMax: Float = 8000.0 {
+    
+    @Published public var fMax: Float = {
+        let saved = UserDefaults.standard.float(forKey: "wavebar.fMax")
+        return saved > 0.0 ? saved : 8000.0
+    }() {
         didSet {
             let clamped = max(fMin * 2.0, min(fMax, 22000.0))
             if clamped != fMax {
                 fMax = clamped
-            } else if fMax != oldValue {
-                regenerateBucketConfigs()
+            } else {
+                UserDefaults.standard.set(fMax, forKey: "wavebar.fMax")
+                if fMax != oldValue {
+                    regenerateBucketConfigs()
+                }
             }
         }
     }
-    @Published public var bucketCount: Int = 48 {
+    
+    @Published public var bucketCount: Int = {
+        let saved = UserDefaults.standard.integer(forKey: "wavebar.bucketCount")
+        return saved > 0 ? saved : 48
+    }() {
         didSet {
             if bucketCount != oldValue {
+                UserDefaults.standard.set(bucketCount, forKey: "wavebar.bucketCount")
                 regenerateBucketConfigs()
             }
         }

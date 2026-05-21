@@ -34,11 +34,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
+    private var hasConfiguredInitialFrame = false
+    
     private func configureWindow(_ window: NSWindow, isKey: Bool? = nil) {
         // Run on main thread to prevent threading issues with AppKit
         DispatchQueue.main.async {
             // Keep window floating on top for premium picture-in-picture convenience
             window.level = .floating
+            
+            // Set initial centered window frame of 750x200 exactly once on startup
+            if !self.hasConfiguredInitialFrame {
+                self.hasConfiguredInitialFrame = true
+                
+                // Disable window autosave / frame restoration to force our default size
+                window.setFrameAutosaveName("")
+                
+                let targetSize = NSSize(width: 750, height: 200)
+                let screenFrame = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect.zero
+                
+                if screenFrame != NSRect.zero {
+                    let originX = screenFrame.origin.x + (screenFrame.width - targetSize.width) / 2
+                    let originY = screenFrame.origin.y + (screenFrame.height - targetSize.height) / 2
+                    let targetFrame = NSRect(origin: NSPoint(x: originX, y: originY), size: targetSize)
+                    window.setFrame(targetFrame, display: true, animate: false)
+                } else {
+                    window.setContentSize(targetSize)
+                }
+            }
             
             let keyState = isKey ?? window.isKeyWindow
             // Hide standard close/minimize/maximize buttons when window is not active/focused

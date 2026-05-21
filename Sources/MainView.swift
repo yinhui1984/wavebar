@@ -76,7 +76,13 @@ public struct MainView: View {
     
     @State private var bufferHolder: DSPBufferHolder
     @State private var showControls: Bool = true
-    @State private var selectedTheme: VisualizerTheme = .aurora
+    @State private var selectedTheme: VisualizerTheme = {
+        if let saved = UserDefaults.standard.string(forKey: "wavebar.selectedTheme"),
+           let theme = VisualizerTheme(rawValue: saved) {
+            return theme
+        }
+        return .aurora
+    }()
     
     // High-frequency publisher timer to drive real-time analysis at 60 FPS
     private let timer = Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()
@@ -518,6 +524,9 @@ public struct MainView: View {
                 
                 // C. Feed spectral results to dynamic smoothing and shaping
                 spectrumAnalyzer.processFrame(magnitudes: bufferHolder.magnitudes)
+            }
+            .onChange(of: selectedTheme) { _, newTheme in
+                UserDefaults.standard.set(newTheme.rawValue, forKey: "wavebar.selectedTheme")
             }
         }
         .frame(minWidth: 160, minHeight: 60)

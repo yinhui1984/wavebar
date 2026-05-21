@@ -145,14 +145,21 @@ public final class AudioEngineManager: ObservableObject {
             }
         }
         
-        DispatchQueue.main.async {
+        if Thread.isMainThread {
             self.devices = list
+        } else {
+            DispatchQueue.main.async {
+                self.devices = list
+            }
         }
     }
     
-    /// Scans the available devices list and picks BlackHole as primary target, falling back gracefully.
+    /// Scans the available devices list and picks the persisted/preferred device, or falls back.
     public func autoSelectDevice() {
-        if let blackHole2ch = devices.first(where: { $0.name.localizedCaseInsensitiveContains("BlackHole 2ch") }) {
+        if let savedName = UserDefaults.standard.string(forKey: "wavebar.selectedDeviceName"),
+           let matched = devices.first(where: { $0.name == savedName }) {
+            selectedDeviceID = matched.id
+        } else if let blackHole2ch = devices.first(where: { $0.name.localizedCaseInsensitiveContains("BlackHole 2ch") }) {
             selectedDeviceID = blackHole2ch.id
         } else if let blackHoleAny = devices.first(where: { $0.name.localizedCaseInsensitiveContains("BlackHole") }) {
             selectedDeviceID = blackHoleAny.id
@@ -175,6 +182,9 @@ public final class AudioEngineManager: ObservableObject {
         
         DispatchQueue.main.async {
             self.selectedDeviceID = deviceID
+            if let device = self.devices.first(where: { $0.id == deviceID }) {
+                UserDefaults.standard.set(device.name, forKey: "wavebar.selectedDeviceName")
+            }
         }
         
         let inputNode = audioEngine.inputNode
