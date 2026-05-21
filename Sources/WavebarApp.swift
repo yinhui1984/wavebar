@@ -46,6 +46,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Keep window floating on top for premium picture-in-picture convenience
             window.level = .floating
             
+            // Modern premium borderless/full-size integration details
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.styleMask.insert(.fullSizeContentView)
+            window.isMovableByWindowBackground = true
+            window.minSize = NSSize(width: 160, height: 30)
+            
             // Set initial centered window frame of 750x200 exactly once on startup
             if !self.hasConfiguredInitialFrame {
                 self.hasConfiguredInitialFrame = true

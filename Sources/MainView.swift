@@ -160,8 +160,13 @@ public struct MainView: View {
                     // Beat-driven overall canvas resonant vertical scaling (adds up to 8% vertical expansion on strong beats)
                     let pulseScale = 1.0 + CGFloat(spectrumAnalyzer.pulseGlow) * 0.08
                     
+                    // Dynamic paddings tailored for the modern Option A header-less layout (edge-to-edge full-bleed)
+                    let topPadding: CGFloat = 0
+                    let bottomPadding: CGFloat = 2
+                    let maxBarHeight = max(10.0, size.height - topPadding - bottomPadding)
+                    
                     // Top Y coordinate of the stationary gradient (top of maximum possible bar height)
-                    let gradientTopY = size.height - 6 - (size.height - 22) * 1.05
+                    let gradientTopY = topPadding
                     
                     // Batch all bars into a single path to avoid separate allocation and draw overhead per bar
                     var combinedPath = Path()
@@ -177,10 +182,10 @@ public struct MainView: View {
                         
                         let valFraction = CGFloat(heights[max(0, min(originalIndex, count - 1))])
                         // Scale bars using dynamic pulse scale
-                        let barHeight = max(1.5, valFraction * (size.height - 22) * pulseScale)
+                        let barHeight = max(1.5, valFraction * maxBarHeight * pulseScale)
                         
                         let x = CGFloat(i) * (barWidth + spacing)
-                        let y = size.height - barHeight - 6
+                        let y = size.height - barHeight - bottomPadding
                         
                         let rect = CGRect(x: x, y: y, width: barWidth, height: barHeight)
                         let cornerRadius = min(barWidth / 2, 3)
@@ -538,7 +543,7 @@ public struct MainView: View {
                 UserDefaults.standard.set(newTheme.rawValue, forKey: "wavebar.selectedTheme")
             }
         }
-        .frame(minWidth: 160, minHeight: 60)
+        .frame(minWidth: 160, minHeight: 30)
     }
     
     // MARK: - HUD Format Helpers
