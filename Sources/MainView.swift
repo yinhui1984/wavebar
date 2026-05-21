@@ -77,6 +77,7 @@ public struct MainView: View {
     
     @State private var bufferHolder: DSPBufferHolder
     @State private var showControls: Bool = true
+    @State private var showSettings: Bool = false
     @State private var selectedTheme: VisualizerTheme = {
         if let saved = UserDefaults.standard.string(forKey: "wavebar.selectedTheme"),
            let theme = VisualizerTheme(rawValue: saved) {
@@ -388,10 +389,9 @@ public struct MainView: View {
                 // 5. Floating Frosted Control Bar (dynamically hidden when window is too small)
                 VStack {
                     Spacer()
-                    if showControls && geometry.size.height >= 180 && geometry.size.width >= 720 {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 16) {
-                            // Device Selector
+                    if (showControls || showSettings) && geometry.size.height >= 180 && geometry.size.width >= 360 {
+                        HStack(spacing: 16) {
+                            // Device selector
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("AUDIO INPUT")
                                     .font(.system(size: 8, weight: .bold))
@@ -416,7 +416,7 @@ public struct MainView: View {
                             
                             Divider().frame(height: 24)
                             
-                            // Theme Selector
+                            // Theme selector
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("COLOR THEME")
                                     .font(.system(size: 8, weight: .bold))
@@ -432,119 +432,23 @@ public struct MainView: View {
                             
                             Divider().frame(height: 24)
                             
-                            // Sensitivity
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("SENSITIVITY")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundColor(.gray)
-                                HStack {
-                                    Image(systemName: "slider.horizontal.3")
-                                        .font(.caption)
-                                        .foregroundColor(.teal)
-                                    Slider(value: $spectrumAnalyzer.sensitivity, in: 0.3...3.0)
-                                        .frame(width: 70)
-                                }
+                            Button {
+                                showSettings.toggle()
+                                showControls = true
+                            } label: {
+                                Image(systemName: "gearshape.fill")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.teal)
+                                    .frame(width: 28, height: 28)
                             }
-                            
-                            Divider().frame(height: 24)
-                            
-                            // Smoothness (Release)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("DECAY SMOOTH")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundColor(.gray)
-                                HStack {
-                                    Image(systemName: "waveform.path")
-                                        .font(.caption)
-                                        .foregroundColor(.teal)
-                                    Slider(value: $spectrumAnalyzer.smoothness, in: 0.03...0.30)
-                                        .frame(width: 70)
-                                }
+                            .buttonStyle(.plain)
+                            .help("Settings")
+                            .popover(isPresented: $showSettings, arrowEdge: .bottom) {
+                                settingsPanel
                             }
-                            
-                            Divider().frame(height: 24)
-                            
-                            // Bar count
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("BARS")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundColor(.gray)
-                                HStack {
-                                    Image(systemName: "chart.bar")
-                                        .font(.caption)
-                                        .foregroundColor(.teal)
-                                    Slider(value: Binding(
-                                        get: { Double(spectrumAnalyzer.bucketCount) },
-                                        set: { spectrumAnalyzer.bucketCount = Int($0) }
-                                    ), in: 24...160, step: 4)
-                                        .frame(width: 70)
-                                }
-                            }
-                            
-                            Divider().frame(height: 24)
-                            
-                            // EQ Boost Toggle
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("LOW EQ")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundColor(.gray)
-                                Toggle("Boost Bass", isOn: $spectrumAnalyzer.lowBoostEnabled)
-                                    .toggleStyle(.checkbox)
-                                    .font(.caption)
-                            }
-                            
-                            Divider().frame(height: 24)
-                            
-                            // Liquid FX
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("LIQUID FX")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundColor(.gray)
-                                HStack {
-                                    Image(systemName: "drop.fill")
-                                        .font(.caption)
-                                        .foregroundColor(.teal)
-                                    Slider(value: $liquidIntensity, in: 0.0...1.0, step: 0.05)
-                                        .frame(width: 70)
-                                }
-                            }
-                            
-                            Divider().frame(height: 24)
-                            
-                            // Bass Limit
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("BASS LIMIT")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundColor(.gray)
-                                HStack {
-                                    Image(systemName: "arrow.down.forward.and.arrow.up.backward")
-                                        .font(.caption)
-                                        .foregroundColor(.teal)
-                                    Slider(value: $spectrumAnalyzer.fMin, in: 20...1000, step: 5)
-                                        .frame(width: 70)
-                                }
-                            }
-                            
-                            Divider().frame(height: 24)
-                            
-                            // Treble Limit
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("TREBLE LIMIT")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundColor(.gray)
-                                HStack {
-                                    Image(systemName: "arrow.up.forward.and.arrow.down.backward")
-                                        .font(.caption)
-                                        .foregroundColor(.teal)
-                                    Slider(value: $spectrumAnalyzer.fMax, in: 1000...22000, step: 250)
-                                        .frame(width: 70)
-                                }
-                            }
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
                         }
-                        .frame(maxWidth: max(0, geometry.size.width - 24))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
                         .background(.ultraThinMaterial)
                         .cornerRadius(16)
                         .overlay(
@@ -558,8 +462,12 @@ public struct MainView: View {
                 .padding(.bottom, 16)
             }
             .onHover { inside in
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    showControls = inside
+                if showSettings {
+                    showControls = true
+                } else {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        showControls = inside
+                    }
                 }
             }
             .onAppear {
@@ -599,6 +507,91 @@ public struct MainView: View {
             }
         }
         .frame(minWidth: 160, minHeight: 30)
+    }
+    
+    private var settingsPanel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            settingsSlider(
+                title: "SENSITIVITY",
+                icon: "slider.horizontal.3",
+                value: $spectrumAnalyzer.sensitivity,
+                range: 0.3...3.0
+            )
+            
+            settingsSlider(
+                title: "DECAY SMOOTH",
+                icon: "waveform.path",
+                value: $spectrumAnalyzer.smoothness,
+                range: 0.03...0.30
+            )
+            
+            VStack(alignment: .leading, spacing: 5) {
+                Text("BARS")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.gray)
+                HStack(spacing: 8) {
+                    Image(systemName: "chart.bar")
+                        .font(.caption)
+                        .foregroundColor(.teal)
+                        .frame(width: 16)
+                    Slider(value: Binding(
+                        get: { Double(spectrumAnalyzer.bucketCount) },
+                        set: { spectrumAnalyzer.bucketCount = Int($0) }
+                    ), in: 24...160, step: 4)
+                    Text("\(spectrumAnalyzer.bucketCount)")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.65))
+                        .frame(width: 28, alignment: .trailing)
+                }
+            }
+            
+            Toggle("LOW EQ", isOn: $spectrumAnalyzer.lowBoostEnabled)
+                .toggleStyle(.checkbox)
+                .font(.system(size: 11, weight: .semibold))
+            
+            settingsSlider(
+                title: "LIQUID FX",
+                icon: "drop.fill",
+                value: $liquidIntensity,
+                range: 0.0...1.0
+            )
+            
+            settingsSlider(
+                title: "BASS LIMIT",
+                icon: "arrow.down.forward.and.arrow.up.backward",
+                value: $spectrumAnalyzer.fMin,
+                range: 20...1000
+            )
+            
+            settingsSlider(
+                title: "TREBLE LIMIT",
+                icon: "arrow.up.forward.and.arrow.down.backward",
+                value: $spectrumAnalyzer.fMax,
+                range: 1000...22000
+            )
+        }
+        .padding(16)
+        .frame(width: 300)
+    }
+    
+    private func settingsSlider<V: BinaryFloatingPoint>(
+        title: String,
+        icon: String,
+        value: Binding<V>,
+        range: ClosedRange<V>
+    ) -> some View where V.Stride: BinaryFloatingPoint {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundColor(.gray)
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.caption)
+                    .foregroundColor(.teal)
+                    .frame(width: 16)
+                Slider(value: value, in: range)
+            }
+        }
     }
     
     // MARK: - HUD Format Helpers
