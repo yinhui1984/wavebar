@@ -1,0 +1,13 @@
+# Swift Package Manager build products
+.build/
+.swiftpm/
+
+# macOS folder metadata
+.DS_Store
+
+# User-specific Xcode state (if opened in Xcode)
+xcuserdata/
+DerivedData/
+*.mode1v3
+*.mode2v3
+*.perspectivev3
