@@ -88,7 +88,7 @@ public final class SpectrumAnalyzer: ObservableObject {
     private var sampleRate: Double = 44100.0
     private var runningMax: Float = 0.1
     private var bassAverage: Float = 0.05
-    private var attackCoeff: Float = 0.92 // Instant responsive attack
+    private var attackCoeff: Float = 1.0 // Instant responsive attack
     
     private var peakVelocities: [Float] = []
     private var peakHoldFrames: [Int] = []

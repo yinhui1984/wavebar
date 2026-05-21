@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import CoreAudio
+import QuartzCore
 
 /// Pre-allocated scratch buffers to prevent 60 FPS garbage collection pressure.
 private final class DSPBufferHolder {
@@ -84,8 +85,7 @@ public struct MainView: View {
         return .aurora
     }()
     
-    // High-frequency publisher timer to drive real-time analysis at 60 FPS
-    private let timer = Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()
+    @State private var displayLinkAction: DisplayLinkAction? = nil
     
     // Drag Zones for horizontal frequency range adjustments
     private enum DragZone {
@@ -163,6 +163,9 @@ public struct MainView: View {
                     // Top Y coordinate of the stationary gradient (top of maximum possible bar height)
                     let gradientTopY = size.height - 6 - (size.height - 22) * 1.05
                     
+                    // Batch all bars into a single path to avoid separate allocation and draw overhead per bar
+                    var combinedPath = Path()
+                    
                     for i in 0..<finalCount {
                         // Linearly map the final bar index to the original FFT bin count
                         let originalIndex: Int
@@ -180,20 +183,20 @@ public struct MainView: View {
                         let y = size.height - barHeight - 6
                         
                         let rect = CGRect(x: x, y: y, width: barWidth, height: barHeight)
-                        let roundedPath = Path(roundedRect: rect, cornerRadius: min(barWidth / 2, 3))
-                        
-                        // Vertical Color Gradient (globally aligned horizontally to prevent dizzying stretching)
-                        let barGradient = Gradient(colors: selectedTheme.colors)
-                        
-                        context.fill(
-                            roundedPath,
-                            with: .linearGradient(
-                                barGradient,
-                                startPoint: CGPoint(x: x + barWidth / 2, y: size.height - 6),
-                                endPoint: CGPoint(x: x + barWidth / 2, y: gradientTopY)
-                            )
-                        )
+                        let cornerRadius = min(barWidth / 2, 3)
+                        combinedPath.addRoundedRect(in: rect, cornerSize: CGSize(width: cornerRadius, height: cornerRadius))
                     }
+                    
+                    // Single gradient allocation and fill call for the entire canvas
+                    let barGradient = Gradient(colors: selectedTheme.colors)
+                    context.fill(
+                        combinedPath,
+                        with: .linearGradient(
+                            barGradient,
+                            startPoint: CGPoint(x: size.width / 2, y: size.height - 6),
+                            endPoint: CGPoint(x: size.width / 2, y: gradientTopY)
+                        )
+                    )
                 }
                 .edgesIgnoringSafeArea(.horizontal)
                 .contentShape(Rectangle())
@@ -443,7 +446,7 @@ public struct MainView: View {
                                     Slider(value: Binding(
                                         get: { Double(spectrumAnalyzer.bucketCount) },
                                         set: { spectrumAnalyzer.bucketCount = Int($0) }
-                                    ), in: 24...96, step: 4)
+                                    ), in: 24...160, step: 4)
                                         .frame(width: 70)
                                 }
                             }
@@ -511,19 +514,25 @@ public struct MainView: View {
                     showControls = inside
                 }
             }
-            .onReceive(timer) { _ in
-                // Execute real-time audio DSP calculations at 60 FPS on the main thread
-                let fftSize = fftProcessor.fftSize
-                spectrumAnalyzer.updateSampleRate(audioEngineManager.sampleRate)
-                
-                // A. Read latest audio frames
-                ringBuffer.readLatest(count: fftSize, into: &bufferHolder.sampleBuffer)
-                
-                // B. Run FFT analysis
-                fftProcessor.analyze(samples: bufferHolder.sampleBuffer, magnitudes: &bufferHolder.magnitudes)
-                
-                // C. Feed spectral results to dynamic smoothing and shaping
-                spectrumAnalyzer.processFrame(magnitudes: bufferHolder.magnitudes)
+            .onAppear {
+                displayLinkAction = DisplayLinkAction {
+                    // Execute real-time audio DSP calculations at native display refresh rate
+                    let fftSize = fftProcessor.fftSize
+                    spectrumAnalyzer.updateSampleRate(audioEngineManager.sampleRate)
+                    
+                    // A. Read latest audio frames
+                    ringBuffer.readLatest(count: fftSize, into: &bufferHolder.sampleBuffer)
+                    
+                    // B. Run FFT analysis
+                    fftProcessor.analyze(samples: bufferHolder.sampleBuffer, magnitudes: &bufferHolder.magnitudes)
+                    
+                    // C. Feed spectral results to dynamic smoothing and shaping
+                    spectrumAnalyzer.processFrame(magnitudes: bufferHolder.magnitudes)
+                }
+            }
+            .onDisappear {
+                displayLinkAction?.invalidate()
+                displayLinkAction = nil
             }
             .onChange(of: selectedTheme) { _, newTheme in
                 UserDefaults.standard.set(newTheme.rawValue, forKey: "wavebar.selectedTheme")
@@ -563,4 +572,35 @@ public struct MainView: View {
 // Clean custom colors extension to fit sleek aesthetics
 extension Color {
     static let amberPrimary = Color(red: 1.0, green: 0.65, blue: 0.15)
+}
+
+/// A DisplayLink timer synchronized exactly with the hardware refresh rate of the monitor (VSYNC).
+/// Supports ProMotion 120Hz/144Hz displays with zero jitter.
+public final class DisplayLinkAction: NSObject {
+    private var displayLink: CADisplayLink?
+    private let action: () -> Void
+    
+    public init(action: @escaping () -> Void) {
+        self.action = action
+        super.init()
+        
+        // Start the display link targeting the main thread common runloop mode on macOS
+        let link = NSScreen.main?.displayLink(target: self, selector: #selector(tick))
+            ?? NSScreen.screens.first?.displayLink(target: self, selector: #selector(tick))
+        link?.add(to: RunLoop.main, forMode: RunLoop.Mode.common)
+        self.displayLink = link
+    }
+    
+    @objc private func tick() {
+        action()
+    }
+    
+    public func invalidate() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+    
+    deinit {
+        invalidate()
+    }
 }

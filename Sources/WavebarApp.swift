@@ -22,6 +22,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return true
+    }
+    
     @objc func windowDidBecomeKey(_ notification: Notification) {
         if let window = notification.object as? NSWindow {
             configureWindow(window, isKey: true)
@@ -84,8 +88,8 @@ public struct WavebarApp: App {
     
     public init() {
         let ring = AudioRingBuffer(capacity: 16384)
-        let processor = FFTProcessor(fftSize: 2048)!
-        let analyzer = SpectrumAnalyzer(fftSize: 2048)
+        let processor = FFTProcessor(fftSize: 1024)!
+        let analyzer = SpectrumAnalyzer(fftSize: 1024)
         let manager = AudioEngineManager(ringBuffer: ring)
         
         self.ringBuffer = ring
