@@ -14,7 +14,11 @@ let package = Package(
         .executableTarget(
             name: "wavebar",
             dependencies: [],
-            path: "Sources"
+            path: "Sources",
+            exclude: ["LiquidGel.metal", "LiquidGel.metallib"],
+            resources: [
+                .process("default.metallib")
+            ]
         )
     ]
 )

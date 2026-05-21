@@ -1,6 +1,7 @@
 # Swift Package Manager build products
 .build/
 .swiftpm/
+dist/
 
 # macOS folder metadata
 .DS_Store

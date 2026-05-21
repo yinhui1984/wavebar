@@ -88,6 +88,12 @@ public struct MainView: View {
     @State private var displayLinkAction: DisplayLinkAction? = nil
     @State private var shakeOffset: CGFloat = 0.0
     @State private var shakeVelocity: CGFloat = 0.0
+    @State private var isLiquidMode: Bool = {
+        if let val = UserDefaults.standard.object(forKey: "wavebar.isLiquidMode") as? Bool {
+            return val
+        }
+        return true
+    }()
     
     // Drag Zones for horizontal frequency range adjustments
     private enum DragZone {
@@ -142,63 +148,48 @@ public struct MainView: View {
                 .animation(.easeOut(duration: 0.1), value: glowVal)
                 
                 // 3. Hardware-Accelerated Spectrum Canvas (Driven reactively by @Published smoothedHeights)
-                Canvas { context, size in
+                let spectrumCanvas = Canvas { context, size in
                     let heights = spectrumAnalyzer.smoothedHeights
                     let count = heights.count
                     guard count > 0 else { return }
                     
-                    // Dynamic styling based on window size
                     let isSmall = size.width < 320
                     let spacing: CGFloat = isSmall ? 1.5 : 2.5
-                    
-                    // Calculate maximum bars that can fit beautifully
                     let minBarWidthAndSpacing: CGFloat = isSmall ? 3.5 : 5.0
                     let maxBars = max(12, Int(size.width / minBarWidthAndSpacing))
                     let finalCount = min(count, maxBars)
-                    
                     let totalSpacing = spacing * CGFloat(finalCount - 1)
                     let barWidth = max(1.0, (size.width - totalSpacing) / CGFloat(finalCount))
                     
-                    // Beat-driven overall canvas resonant vertical scaling (adds up to 8% vertical expansion on strong beats)
+                    // Beat-driven overall canvas resonant vertical scaling
                     let pulseScale = 1.0 + CGFloat(spectrumAnalyzer.pulseGlow) * 0.08
-                    
-                    // Dynamic paddings tailored for the modern Option A header-less layout (edge-to-edge full-bleed)
                     let topPadding: CGFloat = 0
                     let bottomPadding: CGFloat = 2
                     let maxBarHeight = max(10.0, size.height - topPadding - bottomPadding)
-                    
-                    // Top Y coordinate of the stationary gradient (top of maximum possible bar height)
                     let gradientTopY = topPadding
                     
-                    // Batch all bars into a single path to avoid separate allocation and draw overhead per bar
+                    // Batch all bars into a single path
                     var combinedPath = Path()
-                    
                     for i in 0..<finalCount {
-                        // Linearly map the final bar index to the original FFT bin count
                         let originalIndex: Int
                         if finalCount == count {
                             originalIndex = i
                         } else {
                             originalIndex = Int(round(Double(i) * Double(count - 1) / Double(finalCount - 1)))
                         }
-                        
                         let valFraction = CGFloat(heights[max(0, min(originalIndex, count - 1))])
-                        // Scale bars using dynamic pulse scale
                         let barHeight = max(1.5, valFraction * maxBarHeight * pulseScale)
-                        
                         let x = CGFloat(i) * (barWidth + spacing)
                         let y = size.height - barHeight - bottomPadding
-                        
                         let rect = CGRect(x: x, y: y, width: barWidth, height: barHeight)
                         let cornerRadius = min(barWidth / 2, 3)
                         combinedPath.addRoundedRect(in: rect, cornerSize: CGSize(width: cornerRadius, height: cornerRadius))
                     }
                     
-                    // Emission flash: blend the gradient colors towards white based on beat pulse
+                    // Emission flash: blend gradient colors towards white on strong beats
                     let beatFlash = Double(spectrumAnalyzer.pulseGlow)
                     let baseColors = selectedTheme.colors
                     let blendedColors = baseColors.enumerated().map { index, color -> Color in
-                        // Higher frequencies/height stops flash more intensely
                         let factor = Double(index) / Double(baseColors.count - 1)
                         let flashWeight = min(1.0, beatFlash * 0.65 * factor)
                         return color.blend(with: .white, weight: flashWeight)
@@ -214,7 +205,24 @@ public struct MainView: View {
                         )
                     )
                 }
-                .offset(y: shakeOffset) // Apply physical spring camera shake on strong beats
+                
+                spectrumCanvas
+                .overlay {
+                    if isLiquidMode {
+                        // Keep the plain spectrum visible underneath; Liquid FX is an enhancement layer only.
+                        spectrumCanvas
+                            .layerEffect(
+                                ShaderLibrary.bundle(.module).liquidGelShader(
+                                    .float2(Float(geometry.size.width), Float(geometry.size.height)),
+                                    .float(Float(spectrumAnalyzer.pulseGlow)),
+                                    .float(0.35)
+                                ),
+                                maxSampleOffset: CGSize(width: 8, height: 8)
+                            )
+                            .allowsHitTesting(false)
+                    }
+                }
+                .offset(y: shakeOffset)
                 .edgesIgnoringSafeArea(.horizontal)
                 .contentShape(Rectangle())
                 .gesture(
@@ -377,7 +385,8 @@ public struct MainView: View {
                 VStack {
                     Spacer()
                     if showControls && geometry.size.height >= 180 && geometry.size.width >= 720 {
-                        HStack(spacing: 16) {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 16) {
                             // Device Selector
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("AUDIO INPUT")
@@ -482,6 +491,18 @@ public struct MainView: View {
                             
                             Divider().frame(height: 24)
                             
+                            // Liquid FX Toggle
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("LIQUID FX")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(.gray)
+                                Toggle("Liquid Gel", isOn: $isLiquidMode)
+                                    .toggleStyle(.checkbox)
+                                    .font(.caption)
+                            }
+                            
+                            Divider().frame(height: 24)
+                            
                             // Bass Limit
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("BASS LIMIT")
@@ -511,9 +532,11 @@ public struct MainView: View {
                                         .frame(width: 70)
                                 }
                             }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
+                        .frame(maxWidth: max(0, geometry.size.width - 24))
                         .background(.ultraThinMaterial)
                         .cornerRadius(16)
                         .overlay(
@@ -562,6 +585,9 @@ public struct MainView: View {
             }
             .onChange(of: selectedTheme) { _, newTheme in
                 UserDefaults.standard.set(newTheme.rawValue, forKey: "wavebar.selectedTheme")
+            }
+            .onChange(of: isLiquidMode) { _, newValue in
+                UserDefaults.standard.set(newValue, forKey: "wavebar.isLiquidMode")
             }
         }
         .frame(minWidth: 160, minHeight: 30)

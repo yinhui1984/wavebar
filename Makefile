@@ -3,11 +3,12 @@
 all: build
 
 build:
-	swift build -c release
+	./script/build_and_run.sh --configuration release --build-only
 
 run:
-	swift run
+	./script/build_and_run.sh
 
 clean:
 	swift package clean
 	rm -rf .build
+	rm -rf dist
