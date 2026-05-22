@@ -26,7 +26,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        saveWindowSize()
         return true
+    }
+    
+    func applicationWillTerminate(_ notification: Notification) {
+        saveWindowSize()
     }
     
     @objc func windowDidBecomeKey(_ notification: Notification) {
@@ -50,6 +55,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private var hasConfiguredInitialFrame = false
+    
+    private func saveWindowSize() {
+        for window in NSApp.windows {
+            guard window.title == "Wavebar" || window.identifier?.rawValue == "Wavebar" else {
+                continue
+            }
+            let size = window.frame.size
+            UserDefaults.standard.set(Double(size.width), forKey: "wavebar.lastWindowWidth")
+            UserDefaults.standard.set(Double(size.height), forKey: "wavebar.lastWindowHeight")
+            break
+        }
+    }
+    
+    private func loadSavedWindowSize(screenFrame: NSRect) -> NSSize {
+        let defaultSize = NSSize(width: 750, height: 200)
+        let savedWidth = UserDefaults.standard.double(forKey: "wavebar.lastWindowWidth")
+        let savedHeight = UserDefaults.standard.double(forKey: "wavebar.lastWindowHeight")
+        
+        let minWidth: CGFloat = 160
+        let minHeight: CGFloat = 30
+        
+        let maxWidth = screenFrame != NSRect.zero ? screenFrame.width : 2500
+        let maxHeight = screenFrame != NSRect.zero ? screenFrame.height : 1500
+        
+        // Smart bounds check: must be greater than minimum and fit within screen limits
+        if savedWidth >= minWidth && savedWidth <= maxWidth && savedHeight >= minHeight && savedHeight <= maxHeight {
+            return NSSize(width: savedWidth, height: savedHeight)
+        }
+        return defaultSize
+    }
     
     private func configureWindow(_ window: NSWindow, isKey: Bool? = nil) {
         // Run on main thread to prevent threading issues with AppKit
@@ -78,15 +113,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.isMovableByWindowBackground = true
             window.minSize = NSSize(width: 160, height: 30)
             
-            // Set initial centered window frame of 750x200 exactly once on startup
+            // Set initial centered window frame exactly once on startup
             if !self.hasConfiguredInitialFrame {
                 self.hasConfiguredInitialFrame = true
                 
                 // Disable window autosave / frame restoration to force our default size
                 window.setFrameAutosaveName("")
                 
-                let targetSize = NSSize(width: 750, height: 200)
                 let screenFrame = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect.zero
+                let targetSize = self.loadSavedWindowSize(screenFrame: screenFrame)
                 
                 if screenFrame != NSRect.zero {
                     let originX = screenFrame.origin.x + (screenFrame.width - targetSize.width) / 2
