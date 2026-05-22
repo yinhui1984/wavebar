@@ -390,7 +390,7 @@ public struct MainView: View {
                 // 5. Floating Frosted Control Bar (dynamically hidden when window is too small)
                 VStack {
                     Spacer()
-                    if (showControls || showSettings) && geometry.size.height >= 180 && geometry.size.width >= 360 {
+                    if (showControls || showSettings) && geometry.size.height >= 100 && geometry.size.width >= 380 {
                         HStack(spacing: 16) {
                             // Device selector
                             VStack(alignment: .leading, spacing: 4) {
