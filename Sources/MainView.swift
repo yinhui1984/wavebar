@@ -100,19 +100,7 @@ public struct MainView: View {
         return 0.55
     }()
     
-    // Drag Zones for horizontal frequency range adjustments
-    private enum DragZone {
-        case bass
-        case treble
-        case pan
-    }
     
-    @State private var isDraggingFrequency = false
-    @State private var dragStartFMin: Float = 50.0
-    @State private var dragStartFMax: Float = 8000.0
-    @State private var dragZone: DragZone? = nil
-    @State private var showFrequencyHUD = false
-    @State private var hudDismissWorkItem: DispatchWorkItem? = nil
     
     public init(
         audioEngineManager: AudioEngineManager,
@@ -247,136 +235,6 @@ public struct MainView: View {
                 .offset(y: shakeOffset)
                 .edgesIgnoringSafeArea(.horizontal)
                 .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 4)
-                        .onChanged { value in
-                            let width = geometry.size.width
-                            guard width > 0 else { return }
-                            
-                            if !isDraggingFrequency {
-                                isDraggingFrequency = true
-                                withAnimation(.easeOut(duration: 0.25)) {
-                                    showFrequencyHUD = true
-                                }
-                                hudDismissWorkItem?.cancel()
-                                hudDismissWorkItem = nil
-                                
-                                let startX = value.startLocation.x
-                                if startX < width * 0.3 {
-                                    dragZone = .bass
-                                } else if startX > width * 0.7 {
-                                    dragZone = .treble
-                                } else {
-                                    dragZone = .pan
-                                }
-                                
-                                dragStartFMin = spectrumAnalyzer.fMin
-                                dragStartFMax = spectrumAnalyzer.fMax
-                            }
-                            
-                            // 300 pixels = 1 e-fold
-                            let translationFactor = Float(value.translation.width / 300.0)
-                            let ratio = exp(translationFactor)
-                            
-                            switch dragZone {
-                            case .bass:
-                                let rawFMin = dragStartFMin * ratio
-                                spectrumAnalyzer.fMin = max(20.0, min(rawFMin, dragStartFMax / 2.0))
-                            case .treble:
-                                let rawFMax = dragStartFMax * ratio
-                                spectrumAnalyzer.fMax = max(dragStartFMin * 2.0, min(rawFMax, 22000.0))
-                            case .pan:
-                                let rawFMin = dragStartFMin * ratio
-                                let rawFMax = dragStartFMax * ratio
-                                
-                                if rawFMin < 20.0 {
-                                    let correction = 20.0 / rawFMin
-                                    spectrumAnalyzer.fMin = 20.0
-                                    spectrumAnalyzer.fMax = min(rawFMax * correction, 22000.0)
-                                } else if rawFMax > 22000.0 {
-                                    let correction = 22000.0 / rawFMax
-                                    spectrumAnalyzer.fMin = max(20.0, rawFMin * correction)
-                                    spectrumAnalyzer.fMax = 22000.0
-                                } else {
-                                    spectrumAnalyzer.fMin = rawFMin
-                                    spectrumAnalyzer.fMax = rawFMax
-                                }
-                            case .none:
-                                break
-                            }
-                        }
-                        .onEnded { _ in
-                            isDraggingFrequency = false
-                            
-                            hudDismissWorkItem?.cancel()
-                            let workItem = DispatchWorkItem {
-                                withAnimation(.easeInOut(duration: 0.4)) {
-                                    showFrequencyHUD = false
-                                }
-                            }
-                            hudDismissWorkItem = workItem
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: workItem)
-                        }
-                )
-                
-                // 3b. Premium Frequency Zoom / Pan HUD Overlay
-                if showFrequencyHUD {
-                    VStack {
-                        VStack(spacing: 6) {
-                            HStack(spacing: 8) {
-                                Image(systemName: hudIconName)
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundColor(.teal)
-                                Text(hudTitleText)
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(.white.opacity(0.9))
-                                    .tracking(1.5)
-                            }
-                            
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("BASS LIMIT")
-                                        .font(.system(size: 7, weight: .semibold))
-                                        .foregroundColor(.gray)
-                                    Text("\(Int(spectrumAnalyzer.fMin)) Hz")
-                                        .font(.system(size: 15, weight: .bold, design: .monospaced))
-                                        .foregroundColor(dragZone == .bass ? .teal : .white)
-                                }
-                                
-                                Image(systemName: "arrow.right")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundColor(.gray.opacity(0.5))
-                                    .padding(.horizontal, 2)
-                                
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("TREBLE LIMIT")
-                                        .font(.system(size: 7, weight: .semibold))
-                                        .foregroundColor(.gray)
-                                    Text(formatFreq(spectrumAnalyzer.fMax))
-                                        .font(.system(size: 15, weight: .bold, design: .monospaced))
-                                        .foregroundColor(dragZone == .treble ? .teal : .white)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 10)
-                        .background(.ultraThinMaterial)
-                        .cornerRadius(12)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                        )
-                        .shadow(color: Color.black.opacity(0.4), radius: 12, y: 4)
-                        
-                        Spacer()
-                    }
-                    .padding(.top, 45)
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .top)),
-                        removal: .opacity
-                    ))
-                    .zIndex(5)
-                }
                 
                 // 4. Input Failure Overlay Warning
                 if let error = audioEngineManager.errorMessage {
@@ -640,32 +498,7 @@ public struct MainView: View {
         }
     }
     
-    // MARK: - HUD Format Helpers
-    private var hudIconName: String {
-        switch dragZone {
-        case .bass: return "arrow.left.and.right.righttriangle.left.righttriangle.right"
-        case .treble: return "arrow.left.and.right.righttriangle.left.righttriangle.right"
-        case .pan: return "arrow.left.and.right"
-        case .none: return "waveform"
-        }
-    }
     
-    private var hudTitleText: String {
-        switch dragZone {
-        case .bass: return "ADJUST BASS LIMIT"
-        case .treble: return "ADJUST TREBLE LIMIT"
-        case .pan: return "PAN FREQUENCY RANGE"
-        case .none: return "FREQUENCY RANGE"
-        }
-    }
-    
-    private func formatFreq(_ freq: Float) -> String {
-        if freq >= 1000.0 {
-            return String(format: "%.1f kHz", freq / 1000.0)
-        } else {
-            return "\(Int(freq)) Hz"
-        }
-    }
 }
 
 // Clean custom colors extension to fit sleek aesthetics
