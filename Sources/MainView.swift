@@ -146,6 +146,19 @@ public struct MainView: View {
                     .background(.ultraThinMaterial)
                     .opacity(hideBorderAndShadow ? (showControls ? 1.0 : 0.0) : 1.0)
                     .animation(.easeInOut(duration: 0.3), value: showControls)
+                    .mask(
+                        Group {
+                            if hideBorderAndShadow {
+                                LinearGradient(
+                                    colors: [.clear, .black.opacity(0.8), .black],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            } else {
+                                Color.black
+                            }
+                        }
+                    )
                 
                 // 2. Inner Nebula Glow Backdrop
                 LinearGradient(
