@@ -120,7 +120,7 @@ public final class VolumeLinkManager: ObservableObject {
                 case 1: // NX_KEYTYPE_SOUND_DOWN
                     adjustVolume(direction: -1.0)
                     return nil
-                case 2: // NX_KEYTYPE_SOUND_MUT
+                case 7: // NX_KEYTYPE_MUTE
                     toggleMute()
                     return nil
                 default:
