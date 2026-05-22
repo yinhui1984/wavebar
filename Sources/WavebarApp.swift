@@ -4,6 +4,9 @@ import AppKit
 /// App delegate to safely handle macOS-specific application lifecycle events.
 /// This guarantees that AppKit has fully initialized before we interact with NSApp.
 class AppDelegate: NSObject, NSApplicationDelegate {
+    private var isHovered = false
+    private var hasConfiguredInitialFrame = false
+    
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Elevate standalone SPM compiled command-line binary to standard regular GUI App.
         // This registers it in the macOS Dock, brings it to the front, and handles key bindings.
@@ -13,6 +16,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Listen for window key/focus events to dynamically show/hide window control buttons
         NotificationCenter.default.addObserver(self, selector: #selector(windowDidBecomeKey(_:)), name: NSWindow.didBecomeKeyNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(windowDidResignKey(_:)), name: NSWindow.didResignKeyNotification, object: nil)
+        
+        // Listen for hover state changes
+        NotificationCenter.default.addObserver(self, selector: #selector(hoverStateChanged(_:)), name: Notification.Name("wavebar.windowHoverStateChanged"), object: nil)
         
         // Listen for UserDefaults changes to dynamically update window shadow
         NotificationCenter.default.addObserver(self, selector: #selector(userDefaultsDidChange(_:)), name: UserDefaults.didChangeNotification, object: nil)
@@ -46,6 +52,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
+    @objc func hoverStateChanged(_ notification: Notification) {
+        if let hovered = notification.object as? Bool {
+            self.isHovered = hovered
+            DispatchQueue.main.async {
+                for window in NSApp.windows {
+                    self.configureWindow(window)
+                }
+            }
+        }
+    }
+    
     @objc func userDefaultsDidChange(_ notification: Notification) {
         DispatchQueue.main.async {
             for window in NSApp.windows {
@@ -53,8 +70,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
     }
-    
-    private var hasConfiguredInitialFrame = false
     
     private func saveWindowSize() {
         for window in NSApp.windows {
@@ -134,10 +149,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             
             let keyState = isKey ?? window.isKeyWindow
-            // Hide standard close/minimize/maximize buttons when window is not active/focused
-            window.standardWindowButton(.closeButton)?.isHidden = !keyState
-            window.standardWindowButton(.miniaturizeButton)?.isHidden = !keyState
-            window.standardWindowButton(.zoomButton)?.isHidden = !keyState
+            // Hide standard close/minimize/maximize buttons when window is not active/focused or not hovered
+            let showButtons = keyState && self.isHovered
+            window.standardWindowButton(.closeButton)?.isHidden = !showButtons
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = !showButtons
+            window.standardWindowButton(.zoomButton)?.isHidden = !showButtons
         }
     }
 }

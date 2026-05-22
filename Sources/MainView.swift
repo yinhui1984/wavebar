@@ -14,60 +14,6 @@ private final class DSPBufferHolder {
     }
 }
 
-public enum VisualizerTheme: String, CaseIterable, Identifiable {
-    case aurora = "Aurora"      // Deep Indigo -> Teal -> Cyan -> Mint White
-    case midnight = "Midnight"  // Indigo -> Violet -> Magenta -> Pink
-    case copper = "Sunset"      // Burgundy -> Crimson -> Amber -> Gold
-    case monochrome = "Silver"  // Graphite -> Slate -> Silver -> White
-    
-    public var id: String { self.rawValue }
-    
-    public var colors: [Color] {
-        switch self {
-        case .aurora:
-            return [
-                Color(red: 0.05, green: 0.35, blue: 0.55).opacity(0.85),
-                Color(red: 0.0, green: 0.75, blue: 0.70),
-                Color(red: 0.0, green: 0.9, blue: 0.85),
-                Color(red: 0.8, green: 1.0, blue: 0.9)
-            ]
-        case .midnight:
-            return [
-                Color(red: 0.15, green: 0.05, blue: 0.45).opacity(0.85),
-                Color(red: 0.35, green: 0.1, blue: 0.75),
-                Color(red: 0.65, green: 0.2, blue: 0.85),
-                Color(red: 0.95, green: 0.6, blue: 0.85)
-            ]
-        case .copper:
-            return [
-                Color(red: 0.35, green: 0.05, blue: 0.15).opacity(0.85),
-                Color(red: 0.7, green: 0.15, blue: 0.15),
-                Color(red: 0.95, green: 0.45, blue: 0.15),
-                Color(red: 1.0, green: 0.85, blue: 0.5)
-            ]
-        case .monochrome:
-            return [
-                Color(red: 0.15, green: 0.18, blue: 0.22).opacity(0.85),
-                Color(red: 0.35, green: 0.38, blue: 0.42),
-                Color(red: 0.65, green: 0.68, blue: 0.72),
-                Color(red: 0.95, green: 0.97, blue: 1.0)
-            ]
-        }
-    }
-    
-    public var glowColor: Color {
-        switch self {
-        case .aurora:
-            return Color.teal
-        case .midnight:
-            return Color.purple
-        case .copper:
-            return Color.orange
-        case .monochrome:
-            return Color(red: 0.4, green: 0.5, blue: 0.6)
-        }
-    }
-}
 
 public struct MainView: View {
     @ObservedObject var audioEngineManager: AudioEngineManager
@@ -77,7 +23,7 @@ public struct MainView: View {
     let fftProcessor: FFTProcessor
     
     @State private var bufferHolder: DSPBufferHolder
-    @State private var showControls: Bool = true
+    @State private var showControls: Bool = false
     @State private var showSettings: Bool = false
     @State private var selectedTheme: VisualizerTheme = {
         if let saved = UserDefaults.standard.string(forKey: "wavebar.selectedTheme"),
@@ -327,6 +273,7 @@ public struct MainView: View {
                         showControls = inside
                     }
                 }
+                NotificationCenter.default.post(name: Notification.Name("wavebar.windowHoverStateChanged"), object: inside)
             }
             .onAppear {
                 displayLinkAction = DisplayLinkAction {

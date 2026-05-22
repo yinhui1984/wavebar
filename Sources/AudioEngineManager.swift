@@ -28,6 +28,13 @@ public final class AudioEngineManager: ObservableObject {
     // Pre-allocated downmix buffer to prevent dynamic heap allocations in the realtime audio callback
     private var downmixBuffer = [Float](repeating: 0.0, count: 16384)
     
+    // Watchdog/Heartbeat mechanism to automatically recover from silent starts / HAL deadlocks
+    private let heartbeatLock = NSLock()
+    private var lastTapCallbackTime: Date? = nil
+    private var watchdogTimer: Timer? = nil
+    private var watchdogRetryCount: Int = 0
+    private let maxWatchdogRetries: Int = 3
+    
     public init(ringBuffer: AudioRingBuffer) {
         self.ringBuffer = ringBuffer
         
@@ -181,6 +188,11 @@ public final class AudioEngineManager: ObservableObject {
     
     /// Starts the AVAudioEngine stream utilizing the selected device ID.
     public func start(deviceID: AudioObjectID) {
+        // Reset retry count if starting fresh (i.e. not triggered by watchdog timer)
+        if watchdogTimer == nil {
+            watchdogRetryCount = 0
+        }
+        
         stop()
         
         DispatchQueue.main.async {
@@ -248,6 +260,12 @@ public final class AudioEngineManager: ObservableObject {
         
         inputNode.installTap(onBus: 0, bufferSize: 2048, format: outputFormat) { [weak self] buffer, time in
             guard let self = self else { return }
+            
+            // Mark heartbeat thread-safely
+            self.heartbeatLock.lock()
+            self.lastTapCallbackTime = Date()
+            self.heartbeatLock.unlock()
+            
             guard let floatData = buffer.floatChannelData else { return }
             
             let channels = Int(buffer.format.channelCount)
@@ -277,12 +295,22 @@ public final class AudioEngineManager: ObservableObject {
         }
         
         // 4. Prepare and start AVAudioEngine
+        heartbeatLock.lock()
+        lastTapCallbackTime = nil
+        heartbeatLock.unlock()
+        
         do {
             audioEngine.prepare()
             try audioEngine.start()
             DispatchQueue.main.async {
                 self.isRunning = true
                 self.errorMessage = nil
+                
+                // Launch watchdog heartbeat checking timer
+                self.stopWatchdog()
+                self.watchdogTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+                    self?.checkHeartbeat()
+                }
             }
         } catch {
             DispatchQueue.main.async {
@@ -293,12 +321,55 @@ public final class AudioEngineManager: ObservableObject {
     
     /// Stops the AVAudioEngine stream and cleans up installed taps.
     public func stop() {
+        stopWatchdog()
+        // Reset retry count on manual stop
+        watchdogRetryCount = 0
+        
         if audioEngine.isRunning {
             audioEngine.stop()
         }
         audioEngine.inputNode.removeTap(onBus: 0)
         DispatchQueue.main.async {
             self.isRunning = false
+        }
+    }
+    
+    // MARK: - Watchdog/Heartbeat Helpers
+    
+    private func stopWatchdog() {
+        watchdogTimer?.invalidate()
+        watchdogTimer = nil
+    }
+    
+    private func checkHeartbeat() {
+        guard isRunning else { return }
+        
+        heartbeatLock.lock()
+        let lastTime = lastTapCallbackTime
+        heartbeatLock.unlock()
+        
+        // If we haven't received any tap callback in the last 2.0 seconds
+        if lastTime == nil || Date().timeIntervalSince(lastTime!) > 2.0 {
+            print("AudioEngineManager: Watchdog detected stuck/silent audio stream.")
+            
+            if watchdogRetryCount < maxWatchdogRetries {
+                watchdogRetryCount += 1
+                let retry = watchdogRetryCount
+                print("AudioEngineManager: Retrying audio engine start (\(retry)/\(maxWatchdogRetries))...")
+                
+                // Re-trigger start on the main thread
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self, let deviceID = self.selectedDeviceID else { return }
+                    self.start(deviceID: deviceID)
+                }
+            } else {
+                print("AudioEngineManager: Watchdog reached maximum retry limit (\(maxWatchdogRetries)). Stopping stream.")
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    self.stop()
+                    self.errorMessage = "Audio stream timed out. Please check your microphone permissions or refresh audio devices."
+                }
+            }
         }
     }
 }
