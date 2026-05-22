@@ -18,6 +18,7 @@ private final class DSPBufferHolder {
 public enum VisualizerStyle: String, CaseIterable, Identifiable {
     case bars = "Frequency Bars"
     case particles = "3D Particle Flow"
+    case cardiogram = "Cardiogram Wave"
     
     public var id: String { self.rawValue }
 }
@@ -74,6 +75,30 @@ public struct MainView: View {
     @State private var vortexSize: Double = {
         let saved = UserDefaults.standard.object(forKey: "wavebar.vortexSize") as? Double
         return saved ?? 1.0
+    }()
+    @State private var cardiogramSpeed: Double = {
+        let saved = UserDefaults.standard.object(forKey: "wavebar.cardiogramSpeed") as? Double
+        return saved ?? 1.0
+    }()
+    @State private var cardiogramGridIntensity: Double = {
+        let saved = UserDefaults.standard.object(forKey: "wavebar.cardiogramGridIntensity") as? Double
+        return saved ?? 0.4
+    }()
+    @State private var cardiogramLineThickness: Double = {
+        let saved = UserDefaults.standard.object(forKey: "wavebar.cardiogramLineThickness") as? Double
+        return saved ?? 1.0
+    }()
+    @State private var cardiogramAmplitude: Double = {
+        let saved = UserDefaults.standard.object(forKey: "wavebar.cardiogramAmplitude") as? Double
+        return saved ?? 1.0
+    }()
+    @State private var cardiogramJitter: Double = {
+        let saved = UserDefaults.standard.object(forKey: "wavebar.cardiogramJitter") as? Double
+        return saved ?? 1.0
+    }()
+    @State private var cardiogramShowHUD: Bool = {
+        let saved = UserDefaults.standard.object(forKey: "wavebar.cardiogramShowHUD") as? Bool
+        return saved ?? true
     }()
     public init(
         audioEngineManager: AudioEngineManager,
@@ -183,6 +208,24 @@ public struct MainView: View {
             Color.clear.onChange(of: vortexSize) { _, newValue in
                 UserDefaults.standard.set(newValue, forKey: "wavebar.vortexSize")
             }
+            Color.clear.onChange(of: cardiogramSpeed) { _, newValue in
+                UserDefaults.standard.set(newValue, forKey: "wavebar.cardiogramSpeed")
+            }
+            Color.clear.onChange(of: cardiogramGridIntensity) { _, newValue in
+                UserDefaults.standard.set(newValue, forKey: "wavebar.cardiogramGridIntensity")
+            }
+            Color.clear.onChange(of: cardiogramLineThickness) { _, newValue in
+                UserDefaults.standard.set(newValue, forKey: "wavebar.cardiogramLineThickness")
+            }
+            Color.clear.onChange(of: cardiogramAmplitude) { _, newValue in
+                UserDefaults.standard.set(newValue, forKey: "wavebar.cardiogramAmplitude")
+            }
+            Color.clear.onChange(of: cardiogramJitter) { _, newValue in
+                UserDefaults.standard.set(newValue, forKey: "wavebar.cardiogramJitter")
+            }
+            Color.clear.onChange(of: cardiogramShowHUD) { _, newValue in
+                UserDefaults.standard.set(newValue, forKey: "wavebar.cardiogramShowHUD")
+            }
         }
         .frame(width: 0, height: 0)
     }
@@ -256,8 +299,8 @@ public struct MainView: View {
             shakeVelocity += force
             shakeOffset += shakeVelocity
             
-            // C. Update continuous time for visual animations (only if particles style is active to save overhead)
-            if selectedStyle == .particles {
+            // C. Update continuous time for visual animations (only if particles or cardiogram style is active to save overhead)
+            if selectedStyle == .particles || selectedStyle == .cardiogram {
                 self.time += 0.012 * selectedTheme.physicsResponsiveness
             }
         }
@@ -369,7 +412,7 @@ public struct MainView: View {
                     blendedColors: blendedColors,
                     pulseGlow: spectrumAnalyzer.pulseGlow
                 )
-            } else {
+            } else if selectedStyle == .particles {
                 VortexParticleVisualizer(
                     heights: spectrumAnalyzer.smoothedHeights,
                     blendedColors: blendedColors,
@@ -378,6 +421,19 @@ public struct MainView: View {
                     flowSpeedMultiplier: flowSpeedMultiplier,
                     turbulenceStrength: turbulenceStrength,
                     vortexSize: vortexSize
+                )
+            } else {
+                CardiogramVisualizer(
+                    heights: spectrumAnalyzer.smoothedHeights,
+                    blendedColors: blendedColors,
+                    pulseGlow: spectrumAnalyzer.pulseGlow,
+                    time: time,
+                    cardiogramSpeed: cardiogramSpeed,
+                    cardiogramGridIntensity: cardiogramGridIntensity,
+                    cardiogramLineThickness: cardiogramLineThickness,
+                    cardiogramAmplitude: cardiogramAmplitude,
+                    cardiogramJitter: cardiogramJitter,
+                    cardiogramShowHUD: cardiogramShowHUD
                 )
             }
         }
@@ -521,7 +577,7 @@ public struct MainView: View {
                             .frame(width: 28, alignment: .trailing)
                     }
                 }
-            } else {
+            } else if selectedStyle == .particles {
                 settingsSlider(
                     title: "PARTICLE SPEED",
                     icon: "speedometer",
@@ -542,6 +598,46 @@ public struct MainView: View {
                     value: $vortexSize,
                     range: 0.3...2.0
                 )
+            } else {
+                settingsSlider(
+                    title: "CARDIOGRAM SPEED",
+                    icon: "speedometer",
+                    value: $cardiogramSpeed,
+                    range: 0.2...2.5
+                )
+                
+                settingsSlider(
+                    title: "GRID INTENSITY",
+                    icon: "grid",
+                    value: $cardiogramGridIntensity,
+                    range: 0.0...1.0
+                )
+                
+                settingsSlider(
+                    title: "LINE THICKNESS",
+                    icon: "waveform",
+                    value: $cardiogramLineThickness,
+                    range: 0.5...3.0
+                )
+                
+                settingsSlider(
+                    title: "WAVE AMPLITUDE",
+                    icon: "waveform.path.ecg",
+                    value: $cardiogramAmplitude,
+                    range: 0.2...3.0
+                )
+                
+                settingsSlider(
+                    title: "BASELINE JITTER",
+                    icon: "bolt.horizontal",
+                    value: $cardiogramJitter,
+                    range: 0.0...3.0
+                )
+                
+                Toggle("SHOW HUD", isOn: $cardiogramShowHUD)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(.top, 4)
             }
             
             HStack(spacing: 16) {
