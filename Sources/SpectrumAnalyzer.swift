@@ -92,6 +92,7 @@ public final class SpectrumAnalyzer: ObservableObject {
     
     private var peakVelocities: [Float] = []
     private var peakHoldFrames: [Int] = []
+    private var runningMaxes: [Float] = []
     
     private struct BucketConfig {
         let startBin: Int
@@ -106,6 +107,7 @@ public final class SpectrumAnalyzer: ObservableObject {
         self.peakHeights = [Float](repeating: 0.0, count: bucketCount)
         self.peakVelocities = [Float](repeating: 0.0, count: bucketCount)
         self.peakHoldFrames = [Int](repeating: 0, count: bucketCount)
+        self.runningMaxes = [Float](repeating: 0.1, count: bucketCount)
         regenerateBucketConfigs()
     }
     
@@ -154,30 +156,39 @@ public final class SpectrumAnalyzer: ObservableObject {
             peakVelocities = [Float](repeating: 0.0, count: bucketCount)
             peakHoldFrames = [Int](repeating: 0, count: bucketCount)
         }
+        if runningMaxes.count != bucketCount {
+            runningMaxes = [Float](repeating: 0.1, count: bucketCount)
+        }
     }
     
     /// Smooth frequency boost curve to make low frequencies more responsive and warm.
     private func getEQGain(frequency: Float) -> Float {
-        guard lowBoostEnabled else { return 1.0 }
-        
-        if frequency <= 200.0 {
-            // High boost for deep bass: 1.8x
-            return 1.8
-        } else if frequency <= 500.0 {
-            // Linear ramp-down from 1.8 to 1.3 for upper bass/warmth
-            let t = (frequency - 200.0) / 300.0
-            return 1.8 - t * 0.5
-        } else if frequency <= 2000.0 {
-            // Linear ramp-down from 1.3 to 0.95 for mid-range
-            let t = (frequency - 500.0) / 1500.0
-            return 1.3 - t * 0.35
-        } else if frequency <= 8000.0 {
-            // Linear ramp-down from 0.95 to 0.70 for high treble (tame hiss)
-            let t = (frequency - 2000.0) / 6000.0
-            return 0.95 - t * 0.25
-        } else {
-            return 0.70
+        // Base low EQ boost
+        var gain: Float = 1.0
+        if lowBoostEnabled {
+            if frequency <= 200.0 {
+                // High boost for deep bass: 1.8x
+                gain = 1.8
+            } else if frequency <= 500.0 {
+                // Linear ramp-down from 1.8 to 1.2 for upper bass/warmth
+                let t = (frequency - 200.0) / 300.0
+                gain = 1.8 - t * 0.6
+            } else if frequency <= 2000.0 {
+                // Linear ramp-down from 1.2 to 1.0 for mid-range
+                let t = (frequency - 500.0) / 1500.0
+                gain = 1.2 - t * 0.2
+            }
         }
+        
+        // Spectral tilt compensation (compensates for natural 1/f energy falloff in music)
+        // High frequencies naturally have 10x-30x less amplitude than low frequencies.
+        // We apply a gentle slope starting from 200Hz to balance the spectrum visually.
+        if frequency > 200.0 {
+            let tilt = pow(frequency / 200.0, 0.65)
+            gain *= tilt
+        }
+        
+        return gain
     }
     
     /// Processes a new frame of raw FFT magnitudes and updates SwiftUI output.
@@ -212,7 +223,7 @@ public final class SpectrumAnalyzer: ObservableObject {
             let hybridVal: Float
             if frequency > 2000.0 {
                 let t = min(1.0, (frequency - 2000.0) / 6000.0)
-                let maxWeight = t * 0.6 // Up to 60% peak/max bin, 40% average above 8kHz
+                let maxWeight = t * 0.85 // Up to 85% peak/max bin, 15% average above 8kHz
                 hybridVal = maxVal * maxWeight + avgVal * (1.0 - maxWeight)
             } else {
                 hybridVal = avgVal
@@ -267,8 +278,19 @@ public final class SpectrumAnalyzer: ObservableObject {
         let currentRelease = smoothness
         
         for k in 0..<bucketCount {
-            // Normalize bucket by runningMax and apply user-controlled sensitivity
-            var targetHeight = (rawBucketValues[k] * sensitivity) / runningMax
+            // Decoupled / Multi-band dynamic range mapping:
+            // Update the local running maximum for this specific bucket
+            let val = rawBucketValues[k]
+            runningMaxes[k] = runningMaxes[k] * 0.992 + val * 0.008
+            
+            // local noise gate floor to prevent silent channel dancing
+            let localMax = max(runningMaxes[k], 0.01)
+            
+            // Blend global and local running max (45% global shape, 55% local dynamic recovery)
+            let blendedMax = runningMax * 0.45 + localMax * 0.55
+            
+            // Normalize bucket and apply user-controlled sensitivity
+            var targetHeight = (val * sensitivity) / blendedMax
             
             // Apply power-law compression (x^0.62) to match human logarithmic decibel hearing
             targetHeight = pow(targetHeight, 0.62)
