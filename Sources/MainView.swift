@@ -276,52 +276,11 @@ public struct MainView: View {
                     .shadow(radius: 10)
                 }
                 
-                // 5. Floating Frosted Control Bar (dynamically hidden when window is too small)
+                // 5. Floating Frosted Control Bar
                 VStack {
                     Spacer()
-                    if (showControls || showSettings) && geometry.size.height >= 100 && geometry.size.width >= 380 {
-                        HStack(spacing: 16) {
-                            // Device selector
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("AUDIO INPUT")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundColor(.gray)
-                                Picker("", selection: Binding(
-                                    get: { audioEngineManager.selectedDeviceID ?? 0 },
-                                    set: { newID in
-                                        if newID != 0 {
-                                            audioEngineManager.start(deviceID: newID)
-                                            spectrumAnalyzer.updateSampleRate(audioEngineManager.sampleRate)
-                                        }
-                                    }
-                                )) {
-                                    Text("Select Input Device...").tag(UInt32(0))
-                                    ForEach(audioEngineManager.devices, id: \.id) { dev in
-                                        Text(dev.name).tag(dev.id)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                                .frame(width: 140)
-                            }
-                            
-                            Divider().frame(height: 24)
-                            
-                            // Theme selector
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("COLOR THEME")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundColor(.gray)
-                                Picker("", selection: $selectedTheme) {
-                                    ForEach(VisualizerTheme.allCases) { theme in
-                                        Text(theme.rawValue).tag(theme)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                                .frame(width: 100)
-                            }
-                            
-                            Divider().frame(height: 24)
-                            
+                    if showControls || showSettings {
+                        HStack(spacing: 0) {
                             Button {
                                 showSettings.toggle()
                                 showControls = true
@@ -337,7 +296,7 @@ public struct MainView: View {
                                 settingsPanel
                             }
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 8)
                         .padding(.vertical, 8)
                         .background(.ultraThinMaterial)
                         .cornerRadius(16)
@@ -414,6 +373,57 @@ public struct MainView: View {
     
     private var settingsPanel: some View {
         VStack(alignment: .leading, spacing: 14) {
+            // Audio Input Selector
+            VStack(alignment: .leading, spacing: 5) {
+                Text("AUDIO INPUT")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.gray)
+                HStack(spacing: 8) {
+                    Image(systemName: "mic.fill")
+                        .font(.caption)
+                        .foregroundColor(.teal)
+                        .frame(width: 16)
+                    Picker("", selection: Binding(
+                        get: { audioEngineManager.selectedDeviceID ?? 0 },
+                        set: { newID in
+                            if newID != 0 {
+                                audioEngineManager.start(deviceID: newID)
+                                spectrumAnalyzer.updateSampleRate(audioEngineManager.sampleRate)
+                            }
+                        }
+                    )) {
+                        Text("Select Input Device...").tag(UInt32(0))
+                        ForEach(audioEngineManager.devices, id: \.id) { dev in
+                            Text(dev.name).tag(dev.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                }
+            }
+            
+            // Color Theme Selector
+            VStack(alignment: .leading, spacing: 5) {
+                Text("COLOR THEME")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.gray)
+                HStack(spacing: 8) {
+                    Image(systemName: "paintpalette.fill")
+                        .font(.caption)
+                        .foregroundColor(.teal)
+                        .frame(width: 16)
+                    Picker("", selection: $selectedTheme) {
+                        ForEach(VisualizerTheme.allCases) { theme in
+                            Text(theme.rawValue).tag(theme)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                }
+            }
+            
+            Divider()
+            
             settingsSlider(
                 title: "SENSITIVITY",
                 icon: "slider.horizontal.3",
