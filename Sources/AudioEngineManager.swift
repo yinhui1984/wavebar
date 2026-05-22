@@ -31,8 +31,11 @@ public final class AudioEngineManager: ObservableObject {
     public init(ringBuffer: AudioRingBuffer) {
         self.ringBuffer = ringBuffer
         
-        refreshDevices()
-        autoSelectDevice()
+        // Postpone loading by 150ms to prevent early Audio HAL loading latency issues during startup
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.refreshDevices()
+            self?.autoSelectDevice()
+        }
     }
     
     /// Enumerates all active input devices from macOS CoreAudio using AudioObject API.
@@ -237,9 +240,13 @@ public final class AudioEngineManager: ObservableObject {
         }
         
         // 3. Configure tap on AVAudioEngine inputNode bus 0
-        let inputFormat = inputNode.inputFormat(forBus: 0)
+        // Clear any stale/invalid graphs to prevent state mismatch
+        audioEngine.reset()
         
-        inputNode.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, time in
+        // Query the node's output format on bus 0 (output bus for source node) instead of the stale input format
+        let outputFormat = inputNode.outputFormat(forBus: 0)
+        
+        inputNode.installTap(onBus: 0, bufferSize: 2048, format: outputFormat) { [weak self] buffer, time in
             guard let self = self else { return }
             guard let floatData = buffer.floatChannelData else { return }
             
