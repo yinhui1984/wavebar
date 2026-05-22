@@ -43,12 +43,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func configureWindow(_ window: NSWindow, isKey: Bool? = nil) {
         // Run on main thread to prevent threading issues with AppKit
         DispatchQueue.main.async {
+            // Only configure the actual Wavebar visualizer window, ignoring system/helper windows
+            guard window.title == "Wavebar" || window.identifier?.rawValue == "Wavebar" else {
+                return
+            }
+            
             // Keep window floating on top for premium picture-in-picture convenience
             window.level = .floating
             
             // Modern premium borderless/full-size integration details
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.hasShadow = true
+            
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
+            if #available(macOS 11.0, *) {
+                window.titlebarSeparatorStyle = .none
+            }
             window.styleMask.insert(.fullSizeContentView)
             window.isMovableByWindowBackground = true
             window.minSize = NSSize(width: 160, height: 30)
@@ -113,6 +125,7 @@ public struct WavebarApp: App {
                 ringBuffer: ringBuffer,
                 fftProcessor: fftProcessor
             )
+            .ignoresSafeArea()
         }
         .windowStyle(.hiddenTitleBar)
     }

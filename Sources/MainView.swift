@@ -131,26 +131,42 @@ public struct MainView: View {
     
     public var body: some View {
         GeometryReader { geometry in
+            let isCompact = geometry.size.height < 100 || geometry.size.width < 380
+            let cornerRadius: CGFloat = isCompact ? 0 : 16
+            let glowVal = spectrumAnalyzer.pulseGlow
+            
+            let glowBlur: CGFloat = {
+                if isCompact {
+                    let baseBlur = max(3.0, geometry.size.height * 0.12)
+                    return baseBlur + CGFloat(glowVal) * (geometry.size.height * 0.08)
+                } else {
+                    return 20 + CGFloat(glowVal) * 15
+                }
+            }()
+            
+            let glowOpacity: Double = {
+                if isCompact {
+                    return 0.25 + Double(glowVal) * 0.45
+                } else {
+                    return 0.08 + Double(glowVal) * 0.38
+                }
+            }()
+            
             ZStack {
-                // 1. Rich Deep-Space Background
-                Color(red: 0.03, green: 0.03, blue: 0.05)
-                    .edgesIgnoringSafeArea(.all)
+                // 1. Translucent Deep Space Glass Backdrop
+                Color(red: 0.02, green: 0.02, blue: 0.04).opacity(isCompact ? 0.6 : 0.4)
+                    .background(.ultraThinMaterial)
                 
-                // 2. Beat-Driven Radial Glow Backdrop
-                let glowVal = spectrumAnalyzer.pulseGlow
-                RadialGradient(
-                    gradient: Gradient(colors: [
-                        selectedTheme.glowColor.opacity(Double(glowVal) * 0.35),
-                        selectedTheme.glowColor.opacity(Double(glowVal) * 0.1),
-                        Color.clear
-                    ]),
-                    center: .bottom,
-                    startRadius: 0,
-                    endRadius: min(350, max(120, geometry.size.width / 2))
+                // 2. Inner Nebula Glow Backdrop
+                LinearGradient(
+                    gradient: Gradient(colors: selectedTheme.colors),
+                    startPoint: .leading,
+                    endPoint: .trailing
                 )
+                .blur(radius: glowBlur)
+                .opacity(glowOpacity)
+                .scaleEffect(1.0 + CGFloat(glowVal) * 0.05)
                 .blendMode(.screen)
-                .edgesIgnoringSafeArea(.all)
-                .animation(.easeOut(duration: 0.1), value: glowVal)
                 
                 // 3. Hardware-Accelerated Spectrum Canvas (Driven reactively by @Published smoothedHeights)
                 let spectrumCanvas = Canvas { context, size in
@@ -461,7 +477,15 @@ public struct MainView: View {
                     }
                 }
                 .padding(.bottom, 16)
+                
+                // 4. Accent Border on top of content
+                if !isCompact {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
             }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .onHover { inside in
                 if showSettings {
                     showControls = true
@@ -508,6 +532,7 @@ public struct MainView: View {
             }
         }
         .frame(minWidth: 160, minHeight: 30)
+        .ignoresSafeArea()
     }
     
     private var settingsPanel: some View {
