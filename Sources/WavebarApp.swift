@@ -14,6 +14,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(windowDidBecomeKey(_:)), name: NSWindow.didBecomeKeyNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(windowDidResignKey(_:)), name: NSWindow.didResignKeyNotification, object: nil)
         
+        // Listen for UserDefaults changes to dynamically update window shadow
+        NotificationCenter.default.addObserver(self, selector: #selector(userDefaultsDidChange(_:)), name: UserDefaults.didChangeNotification, object: nil)
+        
         // Set up initial windows after they have had a chance to render
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             for window in NSApp.windows {
@@ -38,6 +41,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
+    @objc func userDefaultsDidChange(_ notification: Notification) {
+        DispatchQueue.main.async {
+            for window in NSApp.windows {
+                self.configureWindow(window)
+            }
+        }
+    }
+    
     private var hasConfiguredInitialFrame = false
     
     private func configureWindow(_ window: NSWindow, isKey: Bool? = nil) {
@@ -54,7 +65,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Modern premium borderless/full-size integration details
             window.isOpaque = false
             window.backgroundColor = .clear
-            window.hasShadow = true
+            
+            let hideBorderAndShadow = UserDefaults.standard.bool(forKey: "wavebar.hideBorderAndShadow")
+            window.hasShadow = !hideBorderAndShadow
             
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden

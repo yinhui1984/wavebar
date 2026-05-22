@@ -99,9 +99,9 @@ public struct MainView: View {
         }
         return 0.55
     }()
-    
-    
-    
+    @State private var hideBorderAndShadow: Bool = {
+        UserDefaults.standard.bool(forKey: "wavebar.hideBorderAndShadow")
+    }()    
     public init(
         audioEngineManager: AudioEngineManager,
         spectrumAnalyzer: SpectrumAnalyzer,
@@ -144,6 +144,8 @@ public struct MainView: View {
                 // 1. Translucent Deep Space Glass Backdrop
                 Color(red: 0.02, green: 0.02, blue: 0.04).opacity(isCompact ? 0.6 : 0.4)
                     .background(.ultraThinMaterial)
+                    .opacity(hideBorderAndShadow ? (showControls ? 1.0 : 0.0) : 1.0)
+                    .animation(.easeInOut(duration: 0.3), value: showControls)
                 
                 // 2. Inner Nebula Glow Backdrop
                 LinearGradient(
@@ -337,13 +339,14 @@ public struct MainView: View {
                 .padding(.bottom, 16)
                 
                 // 4. Accent Border on top of content
-                if !isCompact {
+                if !isCompact && !hideBorderAndShadow {
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .stroke(Color.white.opacity(0.15), lineWidth: 1)
                         .allowsHitTesting(false)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
             .onHover { inside in
                 if showSettings {
                     showControls = true
@@ -387,6 +390,9 @@ public struct MainView: View {
             }
             .onChange(of: liquidIntensity) { _, newValue in
                 UserDefaults.standard.set(newValue, forKey: "wavebar.liquidIntensity")
+            }
+            .onChange(of: hideBorderAndShadow) { _, newValue in
+                UserDefaults.standard.set(newValue, forKey: "wavebar.hideBorderAndShadow")
             }
         }
         .frame(minWidth: 160, minHeight: 30)
@@ -452,6 +458,10 @@ public struct MainView: View {
                 .toggleStyle(.checkbox)
                 .font(.system(size: 11, weight: .semibold))
             }
+            
+            Toggle("DESKTOP BLEND MODE", isOn: $hideBorderAndShadow)
+                .toggleStyle(.checkbox)
+                .font(.system(size: 11, weight: .semibold))
             
             settingsSlider(
                 title: "LIQUID FX",
