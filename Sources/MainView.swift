@@ -15,6 +15,13 @@ private final class DSPBufferHolder {
 }
 
 
+public enum VisualizerStyle: String, CaseIterable, Identifiable {
+    case bars = "Frequency Bars"
+    case particles = "3D Particle Flow"
+    
+    public var id: String { self.rawValue }
+}
+
 public struct MainView: View {
     @ObservedObject var audioEngineManager: AudioEngineManager
     @ObservedObject var spectrumAnalyzer: SpectrumAnalyzer
@@ -32,6 +39,14 @@ public struct MainView: View {
         }
         return .aurora
     }()
+    @State private var selectedStyle: VisualizerStyle = {
+        if let saved = UserDefaults.standard.string(forKey: "wavebar.selectedStyle"),
+           let style = VisualizerStyle(rawValue: saved) {
+            return style
+        }
+        return .bars
+    }()
+    @State private var time: Double = 0.0
     
     @State private var displayLinkAction: DisplayLinkAction? = nil
     @State private var shakeOffset: CGFloat = 0.0
@@ -117,70 +132,37 @@ public struct MainView: View {
                 .scaleEffect(1.0 + CGFloat(glowVal) * 0.05)
                 .blendMode(.screen)
                 
-                // 3. Hardware-Accelerated Spectrum Canvas (Driven reactively by @Published smoothedHeights)
-                let spectrumCanvas = Canvas { context, size in
-                    let heights = spectrumAnalyzer.smoothedHeights
-                    let count = heights.count
-                    guard count > 0 else { return }
-                    
-                    let isSmall = size.width < 320
-                    let spacing: CGFloat = isSmall ? 1.5 : 2.5
-                    let minBarWidthAndSpacing: CGFloat = isSmall ? 3.5 : 5.0
-                    let maxBars = max(12, Int(size.width / minBarWidthAndSpacing))
-                    let finalCount = min(count, maxBars)
-                    let totalSpacing = spacing * CGFloat(finalCount - 1)
-                    let barWidth = max(1.0, (size.width - totalSpacing) / CGFloat(finalCount))
-                    
-                    // Beat-driven overall canvas resonant vertical scaling
-                    let pulseScale = 1.0 + CGFloat(spectrumAnalyzer.pulseGlow) * 0.08
-                    let topPadding: CGFloat = 0
-                    let bottomPadding: CGFloat = 2
-                    let maxBarHeight = max(10.0, size.height - topPadding - bottomPadding)
-                    let gradientTopY = topPadding
-                    
-                    // Batch all bars into a single path
-                    var combinedPath = Path()
-                    for i in 0..<finalCount {
-                        let originalIndex: Int
-                        if finalCount == count {
-                            originalIndex = i
-                        } else {
-                            originalIndex = Int(round(Double(i) * Double(count - 1) / Double(finalCount - 1)))
-                        }
-                        let valFraction = CGFloat(heights[max(0, min(originalIndex, count - 1))])
-                        let barHeight = max(1.5, valFraction * maxBarHeight * pulseScale)
-                        let x = CGFloat(i) * (barWidth + spacing)
-                        let y = size.height - barHeight - bottomPadding
-                        let rect = CGRect(x: x, y: y, width: barWidth, height: barHeight)
-                        let cornerRadius = min(barWidth / 2, 3)
-                        combinedPath.addRoundedRect(in: rect, cornerSize: CGSize(width: cornerRadius, height: cornerRadius))
-                    }
-                    
-                    // Emission flash: blend gradient colors towards white on strong beats
-                    let beatFlash = Double(spectrumAnalyzer.pulseGlow)
-                    let baseColors = selectedTheme.colors
-                    let blendedColors = baseColors.enumerated().map { index, color -> Color in
-                        let factor = Double(index) / Double(baseColors.count - 1)
-                        let flashWeight = min(1.0, beatFlash * 0.65 * factor)
-                        return color.blend(with: .white, weight: flashWeight)
-                    }
-                    
-                    let barGradient = Gradient(colors: blendedColors)
-                    context.fill(
-                        combinedPath,
-                        with: .linearGradient(
-                            barGradient,
-                            startPoint: CGPoint(x: size.width / 2, y: size.height - 6),
-                            endPoint: CGPoint(x: size.width / 2, y: gradientTopY)
-                        )
-                    )
+                // 3. Decoupled Visualizer View Router (Frequency Bars or 3D Vortex Flow)
+                let baseColors = selectedTheme.colors
+                let beatFlash = Double(spectrumAnalyzer.pulseGlow)
+                let blendedColors = baseColors.enumerated().map { index, color -> Color in
+                    let factor = baseColors.count > 1 ? Double(index) / Double(baseColors.count - 1) : 0.0
+                    let flashWeight = min(1.0, beatFlash * 0.65 * factor)
+                    return color.blend(with: .white, weight: flashWeight)
                 }
                 
-                spectrumCanvas
+                let visualizerView = Group {
+                    if selectedStyle == .bars {
+                        FrequencyBarsVisualizer(
+                            heights: spectrumAnalyzer.smoothedHeights,
+                            blendedColors: blendedColors,
+                            pulseGlow: spectrumAnalyzer.pulseGlow
+                        )
+                    } else {
+                        VortexParticleVisualizer(
+                            heights: spectrumAnalyzer.smoothedHeights,
+                            blendedColors: blendedColors,
+                            pulseGlow: spectrumAnalyzer.pulseGlow,
+                            time: time
+                        )
+                    }
+                }
+                
+                visualizerView
                 .overlay {
                     if liquidIntensity > 0.001 {
                         // Keep the plain spectrum visible underneath; Liquid FX is an enhancement layer only.
-                        spectrumCanvas
+                        visualizerView
                             .layerEffect(
                                 ShaderLibrary.bundle(.module).liquidGelShader(
                                     .float2(Float(geometry.size.width), Float(geometry.size.height)),
@@ -298,6 +280,11 @@ public struct MainView: View {
                     let force = -k * shakeOffset - c * shakeVelocity
                     shakeVelocity += force
                     shakeOffset += shakeVelocity
+                    
+                    // C. Update continuous time for visual animations (only if particles style is active to save overhead)
+                    if selectedStyle == .particles {
+                        self.time += 0.012 * selectedTheme.physicsResponsiveness
+                    }
                 }
             }
             .onDisappear {
@@ -306,6 +293,9 @@ public struct MainView: View {
             }
             .onChange(of: selectedTheme) { _, newTheme in
                 UserDefaults.standard.set(newTheme.rawValue, forKey: "wavebar.selectedTheme")
+            }
+            .onChange(of: selectedStyle) { _, newStyle in
+                UserDefaults.standard.set(newStyle.rawValue, forKey: "wavebar.selectedStyle")
             }
             .onChange(of: liquidIntensity) { _, newValue in
                 UserDefaults.standard.set(newValue, forKey: "wavebar.liquidIntensity")
@@ -362,6 +352,26 @@ public struct MainView: View {
                     Picker("", selection: $selectedTheme) {
                         ForEach(VisualizerTheme.allCases) { theme in
                             Text(theme.rawValue).tag(theme)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                }
+            }
+            
+            // Visualizer Style Selector
+            VStack(alignment: .leading, spacing: 5) {
+                Text("VISUALIZER STYLE")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.gray)
+                HStack(spacing: 8) {
+                    Image(systemName: "square.stack.3d.up.fill")
+                        .font(.caption)
+                        .foregroundColor(.teal)
+                        .frame(width: 16)
+                    Picker("", selection: $selectedStyle) {
+                        ForEach(VisualizerStyle.allCases) { style in
+                            Text(style.rawValue).tag(style)
                         }
                     }
                     .pickerStyle(.menu)
